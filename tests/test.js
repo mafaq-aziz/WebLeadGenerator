@@ -1919,6 +1919,13 @@ async function run() {
     }
   }
 
+  async function driveWaTabs(sw, count) {
+    for (let i = 0; i < count; i++) {
+      await waitFor(() => sw.chrome._tabCalls.created.length === i + 1, 2000);
+      sw.chrome._fireUpdated(sw.chrome._tabCalls.created[i].id, { status: 'complete' });
+    }
+  }
+
   await test('templates: placeholders, WhatsApp/Instagram links, exportable filter', () => {
     const T = globalThis.FicinoTemplates;
     assert.strictEqual(T.render('Hi {name} in {location}!', { instagram_name: 'Bob', location: 'Paris' }), 'Hi Bob in Paris!');
@@ -2139,7 +2146,7 @@ async function run() {
     assert.strictEqual(again.restored, 0, 'permit leads are never restored: ' + JSON.stringify(again));
   });
 
-  await test('outreach: WhatsApp drafts open paced tabs with the rendered message', async () => {
+  await test('outreach: WhatsApp tabs open one at a time, only after the previous finished loading', async () => {
     const sw = loadServiceWorker();
     globalThis.FicinoOutreach.setPace(1);
     await sw.dispatch({ type: 'CLEAR_LEADS' });
@@ -2163,6 +2170,19 @@ async function run() {
     assert.strictEqual(started.started, true);
     assert.strictEqual(started.total, 2, 'total counts eligible leads only');
     assert.strictEqual(started.skipped, 1);
+
+    await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'running', 2000);
+    await waitFor(() => sw.chrome._tabCalls.created.length === 1, 2000);
+    assert.strictEqual(sw.chrome._store.outreach.prepared.length, 0, 'nothing is prepared before the tab finished loading');
+
+    sw.chrome._fireUpdated(sw.chrome._tabCalls.created[0].id, { status: 'loading' });
+    await new Promise((r) => setTimeout(r, 60));
+    assert.strictEqual(sw.chrome._tabCalls.created.length, 1, 'the next tab must wait for the previous one to finish loading');
+    assert.strictEqual(sw.chrome._store.outreach.prepared.length, 0, 'loading status must not count as prepared');
+
+    sw.chrome._fireUpdated(sw.chrome._tabCalls.created[0].id, { status: 'complete' });
+    await waitFor(() => sw.chrome._tabCalls.created.length === 2, 2000);
+    sw.chrome._fireUpdated(sw.chrome._tabCalls.created[1].id, { status: 'complete' });
 
     await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'done');
     const outreach = sw.chrome._store.outreach;
@@ -2238,6 +2258,7 @@ async function run() {
     assert.strictEqual(started.started, true);
     assert.strictEqual(started.total, 20, 'batch cap protects against tab flooding');
     assert.strictEqual(started.skipped, 2);
+    await driveWaTabs(sw, 20);
     await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'done');
     assert.strictEqual(sw.chrome._store.outreach.prepared.length, 20);
   });
@@ -2401,6 +2422,7 @@ async function run() {
     const res = await sw.dispatch({ type: 'OUTREACH_START', payload: { channel: 'whatsapp', ids: [lead.id] } });
     assert.strictEqual(res.total, 1, JSON.stringify(res));
     assert.strictEqual(res.skipped, 0, JSON.stringify(res));
+    await driveWaTabs(sw, 1);
     await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'done');
     const url = sw.chrome._tabCalls.created[0].url;
     assert.ok(url.indexOf('phone=971509998877') !== -1, 'WA link uses the corrected digits: ' + url);
@@ -2435,6 +2457,7 @@ async function run() {
     const out = await sw.dispatch({ type: 'OUTREACH_START', payload: { channel: 'whatsapp', ids: ['t1', 't2'] } });
     assert.strictEqual(out.total, 1, JSON.stringify(out));
     assert.strictEqual(out.skipped, 1, JSON.stringify(out));
+    await driveWaTabs(sw, 1);
     await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'done');
     const reasons = (sw.chrome._store.outreach.failed || []).map((f) => f.reason);
     assert.ok(reasons.indexOf('permit_number') !== -1, JSON.stringify(reasons));
@@ -2456,6 +2479,7 @@ async function run() {
     assert.strictEqual(res.total, 1, 'only the attributed lead is eligible');
     assert.strictEqual(res.skipped, 2);
 
+    await driveWaTabs(sw, 1);
     await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'done');
     const reasons = (sw.chrome._store.outreach.failed || []).map((f) => f.reason);
     assert.ok(reasons.indexOf('not_in_bio') !== -1, JSON.stringify(reasons));

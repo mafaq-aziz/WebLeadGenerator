@@ -12,7 +12,8 @@
 
   function delay() {
     if (typeof paceMs === 'number') return paceMs;
-    return 1500 + Math.floor(Math.random() * 2000);
+    var wa = !!(active && active.channel === 'whatsapp');
+    return (wa ? 8000 : 1500) + Math.floor(Math.random() * (wa ? 6000 : 2000));
   }
 
   function tabsApi() {
@@ -33,7 +34,12 @@
     if (active.pending.tabId !== tabId) return;
     if (active.pending.sent) return;
     active.pending.sent = true;
-    sendDraft(tabId);
+    if (active.pending.wa) {
+      clearTimeout(active.pending.timer);
+      finishItem(active.pending.item, null, tabId);
+    } else {
+      sendDraft(tabId);
+    }
   }
 
   function onRemoved(tabId) {
@@ -136,16 +142,12 @@
         return;
       }
       active.tabIds.push(tabId);
-      if (active.channel === 'whatsapp') {
-        active.prepared.push({ id: item.id, username: item.username, tabId: tabId, url: item.url });
-        updateStored(null, function () { schedule(false); });
-      } else {
-        var captured = { tabId: tabId, item: item, timer: null };
-        captured.timer = setTimeout(function () {
-          if (active && active.pending === captured) finishItem(item, 'timeout', tabId);
-        }, 30000);
-        active.pending = captured;
-      }
+      var wa = active.channel === 'whatsapp';
+      var captured = { tabId: tabId, item: item, timer: null, wa: wa };
+      captured.timer = setTimeout(function () {
+        if (active && active.pending === captured) finishItem(item, 'timeout', tabId);
+      }, wa ? 60000 : 30000);
+      active.pending = captured;
     });
   }
 
