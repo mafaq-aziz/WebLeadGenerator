@@ -1,0 +1,20 @@
+{
+  "name": "webleadgenerator",
+  "version": "1.0.0",
+  "description": "WebLeadGenerator — local-only Instagram lead scraper Chrome extension (Manifest V3). No API, no backend, no telemetry.",
+  "private": true,
+  "scripts": {
+    "check": "node scripts/check.js",
+    "test": "node tests/test.js",
+    "build": "node scripts/build.js",
+    "smoke": "node scripts/smoke.js",
+    "verify": "node scripts/check.js && node tests/test.js && node scripts/build.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}

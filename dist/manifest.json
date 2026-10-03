@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "FICINO Instagram Lead Scraper",
+  "short_name": "FICINO Lead Scraper",
+  "version": "1.0.0",
+  "description": "Local-only Instagram business lead scraper. Observes pages you already have open, extracts publicly visible business info, and stores everything on your device. No API, no backend, no telemetry.",
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "FICINO Instagram Lead Scraper",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.instagram.com/*", "https://linktr.ee/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": [
+        "src/shared/logger.js",
+        "src/content/normalizer.js",
+        "src/content/selectors.js",
+        "src/content/profile-extractor.js",
+        "src/content/business-detector.js",
+        "src/content/mutation-observer.js",
+        "src/content/instagram-scanner.js",
+        "src/content/auto-search.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://linktr.ee/*"],
+      "js": [
+        "src/shared/logger.js",
+        "src/content/normalizer.js",
+        "src/content/linktree-resolver.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.instagram.com/direct/*"],
+      "js": ["src/content/dm-drafter.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

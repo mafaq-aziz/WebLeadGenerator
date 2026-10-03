@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FICINO Lead Scraper</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="brand">
+    <div class="brand-mark">FICINO</div>
+    <div class="brand-sub">Instagram Lead Scraper</div>
+  </header>
+
+  <section class="card status-card">
+    <div class="status-line">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Scanner Active</span>
+    </div>
+    <div class="status-hint" id="statusHint">Scanning current Instagram page…</div>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title">Statistics</h2>
+    <div class="stats">
+      <div class="stat"><span class="stat-label">Profiles scanned</span><span class="stat-value" id="statScanned">0</span></div>
+      <div class="stat"><span class="stat-label">Businesses detected</span><span class="stat-value" id="statBusinesses">0</span></div>
+      <div class="stat"><span class="stat-label">With website</span><span class="stat-value" id="statWithWebsite">0</span></div>
+      <div class="stat"><span class="stat-label">Without website</span><span class="stat-value" id="statWithoutWebsite">0</span></div>
+      <div class="stat"><span class="stat-label">Saved leads</span><span class="stat-value" id="statSaved">0</span></div>
+      <div class="stat"><span class="stat-label">Duplicates</span><span class="stat-value" id="statDuplicates">0</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title">Auto Search</h2>
+
+    <label class="field">
+      <span class="field-label">Search term</span>
+      <input type="text" id="autoQuery" placeholder="e.g. salon london" maxlength="80" />
+    </label>
+
+    <label class="field">
+      <span class="field-label">Leads to collect (no website)</span>
+      <input type="number" id="autoTarget" min="1" max="500" step="1" value="30" />
+    </label>
+
+    <div class="controls">
+      <button class="btn btn-primary" id="btnAutoStart">Start Search</button>
+      <button class="btn btn-danger" id="btnAutoStop" hidden>Stop Search</button>
+    </div>
+
+    <div class="status-hint" id="autoStatus">Idle</div>
+    <div class="progress"><div class="progress-bar" id="autoBar"></div></div>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title">Controls</h2>
+    <div class="controls">
+      <button class="btn btn-primary" id="btnPause">Pause Scanner</button>
+      <button class="btn" id="btnExcel">Export Excel</button>
+      <button class="btn" id="btnCsv">Export CSV</button>
+      <button class="btn btn-danger" id="btnClear">Clear Leads</button>
+      <button class="btn btn-ghost" id="btnDashboard">Open Dashboard</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title">Settings</h2>
+
+    <label class="field">
+      <span class="field-label">Business confidence threshold</span>
+      <div class="field-row">
+        <input type="range" id="thresholdRange" min="0" max="100" step="1" value="70" />
+        <input type="number" id="thresholdInput" min="0" max="100" step="1" value="70" />
+      </div>
+    </label>
+
+    <label class="toggle">
+      <span>Auto-scan</span>
+      <input type="checkbox" id="toggleAutoScan" />
+      <span class="toggle-ui"></span>
+    </label>
+
+    <label class="toggle">
+      <span>Save email</span>
+      <input type="checkbox" id="toggleSaveEmail" />
+      <span class="toggle-ui"></span>
+    </label>
+
+    <label class="toggle">
+      <span>Save phone</span>
+      <input type="checkbox" id="toggleSavePhone" />
+      <span class="toggle-ui"></span>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Default country code for numbers without +CC</span>
+      <div class="field-row">
+        <input type="text" id="inputCountryCode" placeholder="e.g. 971" inputmode="numeric" maxlength="3" />
+      </div>
+    </label>
+
+    <label class="toggle">
+      <span>Debug logging</span>
+      <input type="checkbox" id="toggleDebug" />
+      <span class="toggle-ui"></span>
+    </label>
+  </section>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <footer class="foot">
+    Local only · No API · No server · Data stays on this device
+  </footer>
+
+  <script src="../../lib/xlsx/xlsx.full.min.js"></script>
+  <script src="../shared/logger.js"></script>
+  <script src="../storage/storage.js"></script>
+  <script src="../content/normalizer.js"></script>
+  <script src="../export/excel.js"></script>
+  <script src="../export/csv.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

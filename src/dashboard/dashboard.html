@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FICINO · Lead Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">FICINO</span>
+      <span class="brand-sub">Instagram Lead Scraper</span>
+    </div>
+    <div class="topbar-actions">
+      <span class="count" id="leadCount">0 leads</span>
+      <button class="btn btn-ghost" id="btnSelectAll">Select all</button>
+      <button class="btn btn-ghost" id="btnFlagInfluencers">Flag influencers</button>
+      <button class="btn btn-ghost" id="btnFixPhones">Fix numbers</button>
+      <button class="btn" id="btnExportSelected">Export selected</button>
+      <button class="btn" id="btnExportAll">Export all</button>
+      <button class="btn btn-danger" id="btnClearAll">Clear all</button>
+    </div>
+  </header>
+
+  <section class="toolbar">
+    <input type="search" class="search" id="searchInput" placeholder="Search name, username, bio, phone, email, location…" />
+
+    <div class="filters" id="filters">
+      <button class="chip active" data-filter="all">All</button>
+      <button class="chip" data-filter="high">High confidence</button>
+      <button class="chip" data-filter="medium">Medium confidence</button>
+        <button class="chip" data-filter="phone">Has phone</button>
+        <button class="chip" data-filter="phone_issue">Bad number</button>
+      <button class="chip" data-filter="email">Has email</button>
+      <button class="chip" data-filter="ignored">Influencers (ignored)</button>
+    </div>
+
+    <label class="sort-wrap">
+      Sort
+      <select id="sortSelect">
+        <option value="date_desc">Date found (newest)</option>
+        <option value="date_asc">Date found (oldest)</option>
+        <option value="confidence_desc">Confidence (high)</option>
+        <option value="confidence_asc">Confidence (low)</option>
+        <option value="name_asc">Business name (A–Z)</option>
+        <option value="username_asc">Username (A–Z)</option>
+      </select>
+    </label>
+  </section>
+
+  <section class="outreach" id="outreachPanel">
+    <div class="outreach-row outreach-head">
+      <h2>Outreach drafts</h2>
+      <div class="filters" id="outreachChannels">
+        <button class="chip active" data-channel="whatsapp">WhatsApp</button>
+        <button class="chip" data-channel="instagram">Instagram DM</button>
+      </div>
+      <button class="btn" id="btnPrepare">Prepare drafts (selected)</button>
+      <button class="btn btn-danger" id="btnStopOutreach" hidden>Stop</button>
+      <button class="btn btn-ghost" id="btnMarkContacted">Mark prepared as Contacted</button>
+      <span class="outreach-status" id="outreachStatus"></span>
+    </div>
+    <div class="outreach-row outreach-templates">
+      <label class="tpl-label">
+        WhatsApp message
+        <textarea id="tplWa" rows="3" placeholder="Hi {name}! …"></textarea>
+      </label>
+      <label class="tpl-label">
+        Instagram message
+        <textarea id="tplIg" rows="3" placeholder="Hi {name}! …"></textarea>
+      </label>
+      <button class="btn btn-ghost" id="btnSaveTpl">Save messages</button>
+    </div>
+    <div class="outreach-hint">Placeholders: {name} {username} {category} {location} {followers} {phone} · Drafts open as unsent tabs — nothing is sent automatically.</div>
+    <div class="outreach-banner" id="outreachBanner" hidden>
+      <span id="outreachBannerText"></span>
+      <button class="icon-btn" id="btnDismissOutreach" title="Dismiss">✕</button>
+    </div>
+  </section>
+
+  <main class="table-wrap">
+    <table class="leads-table">
+      <thead>
+        <tr>
+          <th class="col-check"><input type="checkbox" id="checkAll" /></th>
+          <th>Business</th>
+          <th>Instagram</th>
+          <th>Phone</th>
+          <th>Email</th>
+          <th>Location</th>
+          <th class="num">Confidence</th>
+          <th>Date Found</th>
+          <th>Status</th>
+          <th>Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="leadRows"></tbody>
+    </table>
+
+    <div class="empty" id="emptyState" hidden>
+      <div class="empty-title">No leads yet</div>
+      <div class="empty-sub">Open Instagram, enable the scanner, and browse normally. Leads without a visible website appear here.</div>
+    </div>
+
+    <div class="empty" id="noMatchState" hidden>
+      <div class="empty-title">No matching leads</div>
+      <div class="empty-sub">Try a different search or filter.</div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="../../lib/xlsx/xlsx.full.min.js"></script>
+  <script src="../shared/logger.js"></script>
+  <script src="../storage/storage.js"></script>
+  <script src="../content/normalizer.js"></script>
+  <script src="../content/selectors.js"></script>
+  <script src="../shared/templates.js"></script>
+  <script src="../export/excel.js"></script>
+  <script src="../export/csv.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
