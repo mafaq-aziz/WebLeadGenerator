@@ -101,16 +101,18 @@ and send yourself — the extension never presses Enter and never sends anything
 
 1. Edit the **WhatsApp message** and **Instagram message** templates and press
    **Save messages**. Placeholders: `{name}` `{username}` `{category}` `{location}`
-   `{followers}` `{phone}` (unknown placeholders stay as written).
+   `{followers}` `{phone}` — bracket style works too and is case-insensitive
+   (`[Brand Name]`, `[brand name]`, `[Username]`, `[Location]`, …); unknown
+   placeholders stay as written.
 2. Select leads in the table (max 20 per batch — extra ids are reported as
    `batch_limit`), pick a channel, press **Prepare drafts (selected)**.
    - **WhatsApp** opens one tab per lead at
      `https://web.whatsapp.com/send?phone=…&text=…` — the official deep link prefills
      the chat with normalized phone digits and the rendered message. Tabs are strictly
      serialized: the next tab only opens after the previous one has reported fully
-     loaded, plus a random 8–14 s settle delay — WhatsApp tabs never boot in parallel
+     loaded, plus a random 13–24 s settle delay — WhatsApp tabs never boot in parallel
      (one account, one live tab), so every draft actually gets written. A 20-lead batch
-     takes a few minutes; the status shows `Preparing N/20` while it runs.
+     takes about 5–8 minutes; the status shows `Preparing N/20` while it runs.
    - **Instagram DM** opens `https://www.instagram.com/direct/new/?to=<username>` per
      lead and a content script types the rendered message into the composer — using
      `insertText`, never keyboard events, and **never Enter**.
@@ -338,7 +340,7 @@ src/
                                   non-ignored leads)
   background/outreach-runner.js   paced draft preparation: one tab per lead (WhatsApp
                                   deep link / IG DM); every tab must finish loading
-                                  before the next one opens (WhatsApp 8-14 s apart,
+                                  before the next one opens (WhatsApp 13-24 s apart,
                                   IG 1.5-3.5 s), types via dm-drafter, tracks
                                   prepared/failed, activates the first tab when done;
                                   recovers interrupted runs

@@ -1931,6 +1931,15 @@ async function run() {
     assert.strictEqual(T.render('Hi {name} in {location}!', { instagram_name: 'Bob', location: 'Paris' }), 'Hi Bob in Paris!');
     assert.strictEqual(T.render('Hey {unknown}', {}), 'Hey {unknown}', 'unknown placeholders stay as-is');
     assert.strictEqual(T.render('Yo {username}', { instagram_username: '@cool' }), 'Yo cool');
+    assert.strictEqual(
+      T.render('Hi [Brand Name] team! Following as [username].', { instagram_name: 'A1 Beauty Store', instagram_username: 'a1_shop' }),
+      'Hi A1 Beauty Store team! Following as a1_shop.',
+      'bracket-style brand name must be substituted'
+    );
+    assert.strictEqual(T.render('[brand name] | [BRAND NAME] | [ Brand Name ]', { instagram_name: 'X' }), 'X | X | X', 'bracket tokens are case/space insensitive');
+    assert.strictEqual(T.render('[keep this]', {}), '[keep this]', 'unknown bracket text stays literal');
+    assert.strictEqual(T.render('[Brand Name] and {name}', { instagram_name: 'X' }), 'X and X', 'both placeholder styles can mix');
+    assert.strictEqual(T.render('Hi [Brand Name]!', { instagram_username: 'a1_shop' }), 'Hi a1_shop!', 'bracket name falls back to username like {name}');
     assert.strictEqual(T.waPhoneDigits({ phone_raw: '+92 300 1234567' }), '923001234567');
     assert.strictEqual(T.waPhoneDigits({ phone_raw: '0300-1234567' }), '3001234567');
     assert.strictEqual(T.waPhoneDigits({ phone_raw: '12' }), '', 'too-short numbers are rejected');

@@ -6,6 +6,25 @@
     ig: 'Hi {name}! Love your page — we help businesses like yours grow on Instagram. Open to a quick chat?'
   };
 
+  var BRACKET_ALIASES = {
+    name: 'name',
+    brandname: 'name',
+    brand: 'name',
+    businessname: 'name',
+    business: 'name',
+    companyname: 'name',
+    company: 'name',
+    username: 'username',
+    user: 'username',
+    handle: 'username',
+    category: 'category',
+    location: 'location',
+    followers: 'followers',
+    phone: 'phone',
+    phonenumber: 'phone',
+    website: 'website'
+  };
+
   function placeholderValues(lead) {
     var l = lead || {};
     var username = String(l.instagram_username || '').replace(/^@/, '');
@@ -22,6 +41,10 @@
   function render(template, lead) {
     var text = String(template === undefined || template === null ? '' : template);
     var values = placeholderValues(lead);
+    text = text.replace(/\[([^\[\]]+)\]/g, function (match, inner) {
+      var key = BRACKET_ALIASES[String(inner).toLowerCase().replace(/\s+/g, '')];
+      return key ? '{' + key + '}' : match;
+    });
     return text.replace(/\{(\w+)\}/g, function (match, key) {
       return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : match;
     });
