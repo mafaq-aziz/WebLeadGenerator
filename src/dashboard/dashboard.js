@@ -268,11 +268,22 @@
       var show = !!(outreach && outreach.state === 'done' && !outreach.dismissed);
       banner.hidden = !show;
       if (show) {
-        $('outreachBannerText').textContent = outreach.channel === 'instagram'
+        var failed = outreach.failed || [];
+        var reasonCounts = {};
+        failed.forEach(function (f) {
+          var r = f.reason || 'unknown';
+          reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+        });
+        var failNote = failed.length
+          ? ' · ' + failed.length + ' not prepared (' + Object.keys(reasonCounts).map(function (r) {
+              return r + ' \u00d7' + reasonCounts[r];
+            }).join(', ') + ')'
+          : '';
+        $('outreachBannerText').textContent = (outreach.channel === 'instagram'
           ? 'Instagram: ' + (outreach.prepared || []).length +
             ' message(s) typed and sent automatically. Check your DMs.'
           : 'All drafts are ready — WhatsApp: ' + (outreach.prepared || []).length +
-            ' tabs prefilled. Send them one by one with Enter.';
+            ' tabs prefilled. Send them one by one with Enter.') + failNote;
       }
     }
   }

@@ -117,9 +117,11 @@ yourself — the extension never sends anything on WhatsApp.
      (one account, one live tab), so every draft actually gets written. A 20-lead batch
      takes about 5–8 minutes; the status shows `Preparing N/20` while it runs.
    - **Instagram DM** opens `https://www.instagram.com/direct/new/?to=<username>` per
-     lead and a content script types the rendered message into the composer with
-     `insertText`, then presses **Enter to send it** — one plain Enter, in that one tab,
-     right after typing (Instagram does not keep unsent drafts).
+     lead; a content script types the message with `insertText`, then **sends it** —
+     Enter first, falling back to a Send-button click, then Enter again. The send is
+     verified: the composer must clear, otherwise the lead is reported as failed
+     (`send_failed`) with its text left in the composer so you can send it by hand
+     (Instagram does not keep unsent drafts, so sends are never assumed).
 3. Leads without a phone/username, leads with a flagged (unverified) phone,
    `Ignore`d leads, and missing ids are skipped and listed under *failed* with the
    reason.
@@ -128,7 +130,8 @@ yourself — the extension never sends anything on WhatsApp.
    open for the sound** (browsers only allow audio right after you click, so press
    *Prepare drafts* in the dashboard, not the popup).
 5. WhatsApp: review each pre-filled tab and press **Enter** yourself to send, one by
-   one. Instagram messages are already sent by the time the banner appears.
+   one. Instagram messages are already sent by the time the banner appears — anything
+   that did not go out shows up in the banner as `N not prepared (send_failed ×…)`.
 6. **Mark prepared as Contacted** sets the prepared leads' status in one step.
 7. **Stop** (`OUTREACH_STOP`) aborts a run; if the browser restarts mid-run the state
    shows `Interrupted` and can simply be started again.
@@ -267,7 +270,7 @@ submitted exactly once.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 77 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 78 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -332,7 +335,9 @@ src/
     mutation-observer.js          SPA navigation + late-rendered nodes
     instagram-scanner.js          passive orchestrator; sends PROCESS_CANDIDATE to the SW
     dm-drafter.js                 runs on /direct/* only; types the prepared draft into
-                                  the composer (insertText), then presses Enter to send
+                                  the composer (insertText), sends it (Enter, Send
+                                  button fallback) and reports send_failed unless the
+                                  composer cleared
     auto-search.js                active loop: harvest posts -> caption contact stash
                                   -> author profile -> extract; holds profiles whose
                                   only link is a Linktree
@@ -398,11 +403,12 @@ statistics consistent under concurrent page activity.
 - Outreach only ever types and presses Enter inside the tab it opened for that lead —
   it never re-sends, never opens a second chat for a lead you already contacted, and
   never sends anything on WhatsApp (those drafts are yours to send). Instagram sends
-  are a single Enter right after typing, in the one tab prepared for that lead. The
-  completion **beep plays in the dashboard tab** (keep it open); WhatsApp drafts
-  require being logged into WhatsApp Web, and Instagram messages depend on the current
-  DM composer markup — if Instagram changes it, the lead is reported as failed
-  (`no_composer`) instead of typing blindly.
+  are verified (the composer must clear) and reported as `send_failed` otherwise, with
+  the unsent text left in its tab. The completion **beep plays in the dashboard tab**
+  (keep it open); WhatsApp drafts require being logged into WhatsApp Web, and
+  Instagram messages depend on the current DM composer markup — if Instagram changes
+  it, the lead is reported as failed (`no_composer`, `insert_failed`, or
+  `send_failed`) instead of typing blindly.
 - Batches are capped at 20 tabs per run (extra ids are reported as `batch_limit`) so a
   mis-click cannot open hundreds of tabs.
 - The smoke test requires `openssl` on PATH (or `C:\msys64\ucrt64\bin\openssl.exe`).

@@ -1874,7 +1874,7 @@ async function run() {
       win.close();
     });
 
-    await test('dm-drafter types the draft into the DM composer and sends it with Enter', async () => {
+    await test('dm-drafter types the draft, sends it with Enter, and reports send failures', async () => {
       const d = new JSDOM(`<!DOCTYPE html><html><body>
         <div role="dialog">
           <div contenteditable="true" aria-label="Message"></div>
@@ -1883,7 +1883,18 @@ async function run() {
       const win = d.window;
       const listeners = [];
       const keyEvents = [];
-      win.document.addEventListener('keydown', (e) => keyEvents.push(e.key));
+      const sentTexts = [];
+      let autoSend = true;
+      win.document.addEventListener('keydown', (e) => {
+        keyEvents.push(e.key);
+        if (e.key === 'Enter' && autoSend) {
+          const c = win.document.querySelector('div[contenteditable="true"]');
+          if (c && c.textContent.trim()) {
+            sentTexts.push(c.textContent);
+            c.textContent = '';
+          }
+        }
+      });
       win.chrome = { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } };
       win.eval(fs.readFileSync(path.join(root, 'src/content/dm-drafter.js'), 'utf8'));
       assert.strictEqual(listeners.length, 1, 'must register exactly one message listener');
@@ -1897,14 +1908,51 @@ async function run() {
       assert.strictEqual(resp.ok, true, JSON.stringify(resp));
       assert.strictEqual(resp.sent, true, 'instagram drafts are sent right after typing');
       const composer = win.document.querySelector('div[contenteditable="true"]');
-      assert.strictEqual(composer.textContent, 'Hi A1 Salon, quick chat?');
+      assert.deepStrictEqual(sentTexts, ['Hi A1 Salon, quick chat?'], 'the message must sit in the composer when Enter fires');
+      assert.strictEqual(composer.textContent, '', 'a sent message leaves the composer');
       assert.deepStrictEqual(keyEvents, ['Enter'], 'exactly one Enter keydown must be dispatched');
 
-      const second = await respond('Another draft');
-      assert.strictEqual(second.ok, false);
-      assert.strictEqual(second.reason, 'composer_not_empty');
-      assert.strictEqual(composer.textContent, 'Hi A1 Salon, quick chat?', 'existing text must not be overwritten');
-      assert.deepStrictEqual(keyEvents, ['Enter'], 'no extra key events on refusal');
+      autoSend = false;
+      const stuck = await respond('Another draft');
+      assert.strictEqual(stuck.ok, false, JSON.stringify(stuck));
+      assert.strictEqual(stuck.reason, 'send_failed', 'unverified sends must be reported as failures');
+      assert.strictEqual(composer.textContent, 'Another draft', 'unsent text stays in the composer for a manual send');
+      assert.deepStrictEqual(keyEvents, ['Enter', 'Enter', 'Enter'], 'Enter, Enter retry after the button attempt');
+
+      const third = await respond('Third try');
+      assert.strictEqual(third.ok, false);
+      assert.strictEqual(third.reason, 'composer_not_empty');
+      assert.strictEqual(composer.textContent, 'Another draft', 'existing text must not be overwritten');
+      assert.strictEqual(keyEvents.length, 3, 'refusal dispatches no keys');
+
+      win.close();
+    });
+
+    await test('dm-drafter falls back to the Send button when Enter is ignored', async () => {
+      const d = new JSDOM(`<!DOCTYPE html><html><body>
+        <div role="dialog">
+          <div contenteditable="true" aria-label="Message"></div>
+          <div role="button" aria-label="Send"></div>
+        </div>
+      </body></html>`, { url: 'https://www.instagram.com/direct/new/', runScripts: 'outside-only' });
+      const win = d.window;
+      const listeners = [];
+      const keyEvents = [];
+      win.document.addEventListener('keydown', (e) => keyEvents.push(e.key));
+      win.document.querySelector('[role="button"]').addEventListener('click', () => {
+        const c = win.document.querySelector('div[contenteditable="true"]');
+        if (c && c.textContent.trim()) c.textContent = '';
+      });
+      win.chrome = { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } };
+      win.eval(fs.readFileSync(path.join(root, 'src/content/dm-drafter.js'), 'utf8'));
+
+      const resp = await new Promise((resolve) => {
+        listeners[0]({ type: 'OUTREACH_DRAFT', text: 'Button send' }, {}, resolve);
+      });
+      assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+      assert.strictEqual(resp.sent, true);
+      assert.strictEqual(win.document.querySelector('div[contenteditable="true"]').textContent, '');
+      assert.deepStrictEqual(keyEvents, ['Enter'], 'Enter is tried first, the click fallback completes the send');
 
       win.close();
     });

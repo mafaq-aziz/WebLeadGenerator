@@ -64,6 +64,77 @@
     }
   }
 
+  function findSendButton(doc) {
+    var selectors = ['[aria-label="Send"]', '[aria-label="Send message"]', '[aria-label="Send Message"]'];
+    for (var i = 0; i < selectors.length; i++) {
+      var nodes = [];
+      try {
+        nodes = doc.querySelectorAll(selectors[i]);
+      } catch (e) {
+        nodes = [];
+      }
+      for (var j = 0; j < nodes.length; j++) {
+        var el = nodes[j];
+        if (el.hidden) continue;
+        var btn = el.closest ? (el.closest('[role="button"]') || el.closest('button')) : null;
+        if (btn) return btn;
+        if (el.getAttribute && el.getAttribute('role') === 'button') return el;
+        if (el.parentElement) return el.parentElement;
+      }
+    }
+    return null;
+  }
+
+  function composerCleared(node) {
+    return !String(node.textContent || '').trim();
+  }
+
+  function pollCleared(node, deadline, done) {
+    (function tick() {
+      if (composerCleared(node)) {
+        done(true);
+        return;
+      }
+      if (Date.now() > deadline) {
+        done(false);
+        return;
+      }
+      setTimeout(tick, 200);
+    })();
+  }
+
+  function sendVerified(node, respond) {
+    pressEnter(node);
+    pollCleared(node, Date.now() + 2000, function (sentByEnter) {
+      if (sentByEnter) {
+        respond({ ok: true, sent: true });
+        return;
+      }
+      var btn = findSendButton(node.ownerDocument || root.document);
+      if (btn && typeof btn.click === 'function') {
+        try {
+          btn.click();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      pollCleared(node, Date.now() + 2000, function (sentByClick) {
+        if (sentByClick) {
+          respond({ ok: true, sent: true });
+          return;
+        }
+        pressEnter(node);
+        pollCleared(node, Date.now() + 1500, function (sentByRetry) {
+          if (sentByRetry) {
+            respond({ ok: true, sent: true });
+            return;
+          }
+          respond({ ok: false, reason: 'send_failed' });
+        });
+      });
+    });
+  }
+
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener(function (message, sender, respond) {
       if (!message || message.type !== 'OUTREACH_DRAFT') return false;
@@ -87,8 +158,7 @@
               respond({ ok: false, reason: 'insert_failed' });
               return;
             }
-            pressEnter(node);
-            respond({ ok: true, sent: true });
+            sendVerified(node, respond);
           }, 300);
           return;
         }

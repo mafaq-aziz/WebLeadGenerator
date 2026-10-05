@@ -121,8 +121,15 @@ const DM_PAGE = `<!DOCTYPE html>
 </div>
 <script>
   window.__igEnter = 0;
+  window.__igSent = '';
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') window.__igEnter++;
+    if (e.key !== 'Enter') return;
+    window.__igEnter++;
+    var n = document.querySelector('div[contenteditable="true"]');
+    if (n && n.textContent.trim()) {
+      window.__igSent = n.textContent;
+      n.textContent = '';
+    }
   });
 </script>
 </body></html>`;
@@ -547,13 +554,13 @@ async function main() {
     await cdp.send('Runtime.enable', {}, dmAttach.sessionId);
     const composerText = await poll(async () => {
       const out = await cdp.send('Runtime.evaluate', {
-        expression: '(function () { var n = document.querySelector(\'div[contenteditable="true"]\'); return n ? n.textContent : null; })()',
+        expression: '(function () { return window.__igSent || null; })()',
         returnByValue: true
       }, dmAttach.sessionId);
       const text = out.result.value;
       return typeof text === 'string' && text.indexOf('A1 Beauty Store') !== -1 ? text : null;
     }, 20000, 400);
-    console.log('  IG draft typed into the DM composer: "' + composerText.slice(0, 70) + '..."');
+    console.log('  IG message delivered from the composer: "' + composerText.slice(0, 70) + '..."');
     const enterCount = await poll(async () => {
       const out = await cdp.send('Runtime.evaluate', {
         expression: '(function () { return window.__igEnter || 0; })()',
@@ -561,7 +568,7 @@ async function main() {
       }, dmAttach.sessionId);
       return out.result.value > 0 ? out.result.value : null;
     }, 10000, 300);
-    console.log('  IG message sent automatically with Enter (keydown x' + enterCount + ')');
+    console.log('  IG message sent automatically with Enter (keydown x' + enterCount + ', composer cleared)');
 
     console.log('  outreach: preparing WhatsApp draft for @a1_shop...');
     const waStart = JSON.parse(await fromDashboard(
