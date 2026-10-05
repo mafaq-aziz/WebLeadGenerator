@@ -92,7 +92,29 @@ const A1_PROFILE = `<!DOCTYPE html>
   <div dir="auto">Cosmetics and skincare<br>Walk-ins welcome</div>
   <a href="https://linktr.ee/a1_shop">linktr.ee/a1_shop</a>
   <ul><li>980 Followers</li><li>150 Following</li><li>64 Posts</li></ul>
-</section></header></main></body></html>`;
+  <div role="button" id="igMsgBtn">Message</div>
+</section></header></main>
+<script>
+  window.__igMsgClicks = 0;
+  window.__igEnter = 0;
+  window.__igSent = '';
+  document.getElementById('igMsgBtn').addEventListener('click', function () {
+    window.__igMsgClicks++;
+    history.pushState({}, '', '/direct/t/777000/');
+    document.body.innerHTML = '<div role="dialog" aria-label="Chat">' +
+      '<div contenteditable="true" aria-label="Message"></div></div>';
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      window.__igEnter++;
+      var n = document.querySelector('div[contenteditable="true"]');
+      if (n && n.textContent.trim()) {
+        window.__igSent = n.textContent;
+        n.textContent = '';
+      }
+    });
+  });
+</script>
+</body></html>`;
 
 const B2_PROFILE = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>B2 Market (@b2_market) Instagram photos</title></head>
@@ -548,10 +570,18 @@ async function main() {
 
     const dmTarget = await poll(async () => {
       const t = await cdp.send('Target.getTargets');
-      return t.targetInfos.find((x) => x.url.indexOf('direct/new/?to=a1_shop') !== -1) || null;
+      return t.targetInfos.find((x) => x.url.indexOf('www.instagram.com/direct/t/') !== -1) || null;
     }, 15000, 400);
     const dmAttach = await cdp.send('Target.attachToTarget', { targetId: dmTarget.targetId, flatten: true });
     await cdp.send('Runtime.enable', {}, dmAttach.sessionId);
+    const msgClicks = await poll(async () => {
+      const out = await cdp.send('Runtime.evaluate', {
+        expression: '(function () { return window.__igMsgClicks || 0; })()',
+        returnByValue: true
+      }, dmAttach.sessionId);
+      return out.result.value > 0 ? out.result.value : null;
+    }, 10000, 300);
+    console.log('  IG Message button clicked on the profile (x' + msgClicks + '), thread opened');
     const composerText = await poll(async () => {
       const out = await cdp.send('Runtime.evaluate', {
         expression: '(function () { return window.__igSent || null; })()',

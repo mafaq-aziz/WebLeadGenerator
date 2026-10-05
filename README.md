@@ -116,12 +116,17 @@ yourself — the extension never sends anything on WhatsApp.
      loaded, plus a random 13–24 s settle delay — WhatsApp tabs never boot in parallel
      (one account, one live tab), so every draft actually gets written. A 20-lead batch
      takes about 5–8 minutes; the status shows `Preparing N/20` while it runs.
-   - **Instagram DM** opens `https://www.instagram.com/direct/new/?to=<username>` per
-     lead; a content script types the message with `insertText`, then **sends it** —
-     Enter first, falling back to a Send-button click, then Enter again. The send is
-     verified: the composer must clear, otherwise the lead is reported as failed
-     (`send_failed`) with its text left in the composer so you can send it by hand
-     (Instagram does not keep unsent drafts, so sends are never assumed).
+   - **Instagram DM** opens the lead's profile `https://www.instagram.com/<username>/`
+      — Instagram has no working desktop deep-link (`?to=` opens an empty dialog,
+      `ig.me/m/…` is mobile-only, `/direct/t/<id>` needs a thread that does not exist
+      yet), so the content script clicks the profile's **Message** button itself, waits
+      for the thread to open, then types the message with `insertText` and **sends it** —
+      Enter first, falling back to a Send-button click, then Enter again. The send is
+      verified: the composer must clear, otherwise the lead is reported as failed
+      (`send_failed`) with its text left in the composer so you can send it by hand
+      (Instagram does not keep unsent drafts, so sends are never assumed). Failures
+      report precisely: `no_message_button`, `wrong_profile`, `login_required`,
+      `thread_open_failed`, `no_composer`, `send_failed`.
 3. Leads without a phone/username, leads with a flagged (unverified) phone,
    `Ignore`d leads, and missing ids are skipped and listed under *failed* with the
    reason.
@@ -131,7 +136,7 @@ yourself — the extension never sends anything on WhatsApp.
    *Prepare drafts* in the dashboard, not the popup).
 5. WhatsApp: review each pre-filled tab and press **Enter** yourself to send, one by
    one. Instagram messages are already sent by the time the banner appears — anything
-   that did not go out shows up in the banner as `N not prepared (send_failed ×…)`.
+   that did not go out shows up in the banner as `N not prepared (<reason> ×…)`.
 6. **Mark prepared as Contacted** sets the prepared leads' status in one step.
 7. **Stop** (`OUTREACH_STOP`) aborts a run; if the browser restarts mid-run the state
    shows `Interrupted` and can simply be started again.
@@ -257,9 +262,9 @@ submitted exactly once.
   `https://linktr.ee/*` (the second host exists solely so Auto Search can open a
   profile's Linktree and read it with a content script).
 - Outreach drafts only *open tabs* (`chrome.tabs.create` needs no permission): the
-  WhatsApp deep link and the Instagram DM page are ordinary navigations, the message is
-  either in the URL or typed by the `/direct/*` content script — no extra host access
-  to `web.whatsapp.com` is requested and none is needed.
+  WhatsApp deep link and the Instagram profile page are ordinary navigations, the message is
+  either in the URL or typed by the dm-drafter content script on `instagram.com` — no extra
+  host access to `web.whatsapp.com` is requested and none is needed.
 - Data is written exclusively to `chrome.storage.local` on your computer.
 - No network requests are made by the extension (verified by `scripts/check.js`, which
   fails the build on any remote `<script src>`, `fetch` to a non-Instagram origin, or
@@ -270,7 +275,7 @@ submitted exactly once.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 78 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 82 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -306,9 +311,10 @@ npm run smoke    # real headless Chrome end-to-end test
    flags the caption-sourced number as `caption_source`, then `SET_PHONE` accepts the
    correct number and clears the flag on the stored lead.
 8. Sends `OUTREACH_START` for the saved lead twice:
-   **Instagram DM** — asserts the `/direct/new/?to=a1_shop` fixture tab loaded, the
-   runner reported `state: 'done'` with 1 prepared / 0 failed, and the composer
-   contains the rendered template (typed, not sent); **WhatsApp** — asserts the opened
+   **Instagram DM** — asserts the profile fixture's **Message** button was clicked
+   (the tab navigates to `/direct/t/…`), the runner reported `state: 'done'` with
+   1 prepared / 0 failed, and the rendered template was typed and **verified-sent**
+   from the thread composer; **WhatsApp** — asserts the opened
    tab URL is `web.whatsapp.com/send?phone=393331234567&text=…` with the rendered
    message in it (prefilled, not sent).
 
@@ -334,10 +340,11 @@ src/
     influencer-detector.js        conservative influencer/vlogger/blogger scoring
     mutation-observer.js          SPA navigation + late-rendered nodes
     instagram-scanner.js          passive orchestrator; sends PROCESS_CANDIDATE to the SW
-    dm-drafter.js                 runs on /direct/* only; types the prepared draft into
-                                  the composer (insertText), sends it (Enter, Send
-                                  button fallback) and reports send_failed unless the
-                                  composer cleared
+    dm-drafter.js                 runs on all instagram.com pages; on a lead's profile
+                                  it clicks the Message button, waits for the thread,
+                                  types the prepared draft (insertText), sends it
+                                  (Enter, Send button fallback) and reports
+                                  send_failed unless the composer cleared
     auto-search.js                active loop: harvest posts -> caption contact stash
                                   -> author profile -> extract; holds profiles whose
                                   only link is a Linktree
@@ -349,9 +356,9 @@ src/
                                   flagging, and the target counter (counts only saved,
                                   non-ignored leads)
   background/outreach-runner.js   paced draft preparation: one tab per lead (WhatsApp
-                                  deep link / IG DM); every tab must finish loading
-                                  before the next one opens (WhatsApp 13-24 s apart,
-                                  IG 5-8 s), types via dm-drafter, tracks
+                                  deep link / IG profile + Message click); every tab must
+                                  finish loading before the next one opens (WhatsApp
+                                  13-24 s apart, IG 5-8 s), types via dm-drafter, tracks
                                   prepared/failed, activates the first tab when done;
                                   recovers interrupted runs
   export/excel.js                 bundled SheetJS workbook builder (+ message columns)
@@ -361,7 +368,7 @@ src/
                                   panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-tests/                            66-test suite
+tests/                            82-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to

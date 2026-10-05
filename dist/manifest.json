@@ -48,7 +48,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.instagram.com/direct/*"],
+      "matches": ["https://www.instagram.com/*"],
       "js": ["src/content/dm-drafter.js"],
       "run_at": "document_idle"
     }

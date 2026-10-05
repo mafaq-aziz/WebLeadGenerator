@@ -64,7 +64,7 @@
 
     function attempt(tries) {
       if (!active || active.pending !== pending) return;
-      tabs.sendMessage(tabId, { type: 'OUTREACH_DRAFT', text: pending.item.text }, function (resp) {
+      tabs.sendMessage(tabId, { type: 'OUTREACH_DRAFT', text: pending.item.text, recipient: pending.item.username }, function (resp) {
         if (!active || active.pending !== pending) return;
         var err = chrome.runtime && chrome.runtime.lastError;
         if (err && tries < 10) {

@@ -1956,6 +1956,109 @@ async function run() {
 
       win.close();
     });
+
+    await test('dm-drafter opens the lead profile, clicks Message, then types and sends', async () => {
+      const d = new JSDOM(`<!DOCTYPE html><html><body>
+        <header>
+          <div role="button">Follow</div>
+          <div role="button" id="msgBtn">Message</div>
+        </header>
+      </body></html>`, { url: 'https://www.instagram.com/prof_shop/', runScripts: 'outside-only' });
+      const win = d.window;
+      const listeners = [];
+      const keyEvents = [];
+      const sentTexts = [];
+      win.document.addEventListener('keydown', (e) => {
+        keyEvents.push(e.key);
+        if (e.key === 'Enter') {
+          const c = win.document.querySelector('div[contenteditable="true"]');
+          if (c && c.textContent.trim()) {
+            sentTexts.push(c.textContent);
+            c.textContent = '';
+          }
+        }
+      });
+      let clicks = 0;
+      win.document.getElementById('msgBtn').addEventListener('click', () => {
+        clicks++;
+        win.history.pushState({}, '', '/direct/t/555000/');
+        const dlg = win.document.createElement('div');
+        dlg.setAttribute('role', 'dialog');
+        dlg.innerHTML = '<div contenteditable="true" aria-label="Message"></div>';
+        win.document.body.appendChild(dlg);
+      });
+      win.chrome = { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } };
+      win.eval(fs.readFileSync(path.join(root, 'src/content/dm-drafter.js'), 'utf8'));
+
+      const resp = await new Promise((resolve) => {
+        listeners[0]({ type: 'OUTREACH_DRAFT', text: 'Hi Prof', recipient: 'prof_shop' }, {}, resolve);
+      });
+      assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+      assert.strictEqual(resp.sent, true);
+      assert.strictEqual(clicks, 1, 'the Message button on the lead profile must be clicked once');
+      assert.strictEqual(win.location.pathname, '/direct/t/555000/', 'the thread must be open before typing');
+      assert.deepStrictEqual(sentTexts, ['Hi Prof'], 'the draft lands in the opened thread composer');
+      assert.deepStrictEqual(keyEvents, ['Enter'], 'exactly one Enter for the verified send');
+
+      win.close();
+    });
+
+    await test('dm-drafter reports a missing Message button instead of typing blindly', async () => {
+      const d = new JSDOM(`<!DOCTYPE html><html><body>
+        <header><div role="button">Follow</div></header>
+      </body></html>`, { url: 'https://www.instagram.com/ghost_shop/', runScripts: 'outside-only' });
+      const win = d.window;
+      const listeners = [];
+      win.chrome = { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } };
+      win.eval(fs.readFileSync(path.join(root, 'src/content/dm-drafter.js'), 'utf8'));
+
+      const resp = await new Promise((resolve) => {
+        listeners[0]({ type: 'OUTREACH_DRAFT', text: 'Hi', recipient: 'ghost_shop', deadlineMs: 500 }, {}, resolve);
+      });
+      assert.strictEqual(resp.ok, false, JSON.stringify(resp));
+      assert.strictEqual(resp.reason, 'no_message_button');
+      assert.strictEqual(win.document.body.textContent.indexOf('Hi'), -1, 'nothing may be typed without a target chat');
+
+      win.close();
+    });
+
+    await test('dm-drafter refuses to draft on a profile that is not the lead', async () => {
+      const d = new JSDOM(`<!DOCTYPE html><html><body>
+        <header><div role="button">Message</div></header>
+      </body></html>`, { url: 'https://www.instagram.com/someone_else/', runScripts: 'outside-only' });
+      const win = d.window;
+      const listeners = [];
+      let clicks = 0;
+      win.document.addEventListener('click', () => { clicks++; });
+      win.chrome = { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } };
+      win.eval(fs.readFileSync(path.join(root, 'src/content/dm-drafter.js'), 'utf8'));
+
+      const resp = await new Promise((resolve) => {
+        listeners[0]({ type: 'OUTREACH_DRAFT', text: 'Hi', recipient: 'expected_lead' }, {}, resolve);
+      });
+      assert.strictEqual(resp.ok, false, JSON.stringify(resp));
+      assert.strictEqual(resp.reason, 'wrong_profile');
+      assert.strictEqual(clicks, 0, 'no button may be clicked on someone else\'s profile');
+
+      win.close();
+    });
+
+    await test('dm-drafter reports a login wall instead of waiting forever', async () => {
+      const d = new JSDOM(`<!DOCTYPE html><html><body><form id="login"></form></body></html>`,
+        { url: 'https://www.instagram.com/accounts/login/?next=%2Fprof_shop%2F', runScripts: 'outside-only' });
+      const win = d.window;
+      const listeners = [];
+      win.chrome = { runtime: { onMessage: { addListener(fn) { listeners.push(fn); } } } };
+      win.eval(fs.readFileSync(path.join(root, 'src/content/dm-drafter.js'), 'utf8'));
+
+      const resp = await new Promise((resolve) => {
+        listeners[0]({ type: 'OUTREACH_DRAFT', text: 'Hi', recipient: 'prof_shop' }, {}, resolve);
+      });
+      assert.strictEqual(resp.ok, false, JSON.stringify(resp));
+      assert.strictEqual(resp.reason, 'login_required');
+
+      win.close();
+    });
   }
 
   console.log('[9] influencer filtering + outreach drafts');
@@ -1998,7 +2101,7 @@ async function run() {
       'https://web.whatsapp.com/send?phone=923001234567&text=' + encodeURIComponent('Hello & bye')
     );
     assert.strictEqual(T.waSendUrl({}), '');
-    assert.strictEqual(T.igSendUrl({ instagram_username: '@the_shop' }), 'https://www.instagram.com/direct/new/?to=the_shop');
+    assert.strictEqual(T.igSendUrl({ instagram_username: '@the_shop' }), 'https://www.instagram.com/the_shop/');
     assert.strictEqual(T.igSendUrl({}), '');
     assert.ok(T.isIgnored({ status: 'Ignore' }));
     assert.ok(!T.isIgnored({ status: 'New' }));
@@ -2272,7 +2375,7 @@ async function run() {
 
     await waitFor(() => sw.chrome._tabCalls.created.length === 1, 2000);
     const tabId = sw.chrome._tabCalls.created[0].id;
-    assert.ok(sw.chrome._tabCalls.created[0].url.indexOf('instagram.com/direct/new/?to=ig_lead') !== -1);
+    assert.ok(sw.chrome._tabCalls.created[0].url.indexOf('instagram.com/ig_lead') !== -1);
     assert.strictEqual(sw.chrome._tabCalls.sent.length, 0, 'draft must wait until the DM page finished loading');
 
     sw.chrome._fireUpdated(tabId, { status: 'complete' });
@@ -2283,6 +2386,7 @@ async function run() {
     assert.strictEqual(sent[0].tabId, tabId);
     assert.strictEqual(sent[0].msg.type, 'OUTREACH_DRAFT');
     assert.ok(sent[0].msg.text.indexOf('IG Lead') !== -1, 'draft text must be rendered: ' + sent[0].msg.text);
+    assert.strictEqual(sent[0].msg.recipient, 'ig_lead', 'the drafter must be told which profile to message');
     assert.strictEqual(sw.chrome._store.outreach.prepared.length, 1);
     assert.strictEqual(sw.chrome._store.outreach.prepared[0].tabId, tabId);
   });

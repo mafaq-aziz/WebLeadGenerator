@@ -73,7 +73,7 @@
     var l = lead || {};
     var username = String(l.instagram_username || '').trim().replace(/^@/, '');
     if (!username) return '';
-    return 'https://www.instagram.com/direct/new/?to=' + encodeURIComponent(username);
+    return 'https://www.instagram.com/' + encodeURIComponent(username) + '/';
   }
 
   function isIgnored(lead) {
