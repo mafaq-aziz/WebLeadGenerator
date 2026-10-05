@@ -107,6 +107,8 @@
     var list = visibleLeads();
 
     els.leadCount.textContent = state.leads.length + (state.leads.length === 1 ? ' lead' : ' leads');
+    var selCount = selectedIds().length;
+    els.selectedCount.textContent = selCount + (selCount === 1 ? ' lead selected' : ' leads selected');
     els.emptyState.hidden = state.leads.length !== 0;
     els.noMatchState.hidden = !(state.leads.length > 0 && list.length === 0);
 
@@ -289,6 +291,7 @@
   function wire() {
     els.leadRows = $('leadRows');
     els.leadCount = $('leadCount');
+    els.selectedCount = $('selectedCount');
     els.emptyState = $('emptyState');
     els.noMatchState = $('noMatchState');
     els.searchInput = $('searchInput');

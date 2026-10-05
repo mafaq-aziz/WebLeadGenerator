@@ -14,6 +14,7 @@
     </div>
     <div class="topbar-actions">
       <span class="count" id="leadCount">0 leads</span>
+      <span class="count count-selected" id="selectedCount">0 selected</span>
       <button class="btn btn-ghost" id="btnSelectAll">Select all</button>
       <button class="btn btn-ghost" id="btnFlagInfluencers">Flag influencers</button>
       <button class="btn btn-ghost" id="btnFixPhones">Fix numbers</button>
@@ -72,7 +73,7 @@
       </label>
       <button class="btn btn-ghost" id="btnSaveTpl">Save messages</button>
     </div>
-    <div class="outreach-hint">Placeholders: {name} {username} {category} {location} {followers} {phone} · Drafts open as unsent tabs — nothing is sent automatically.</div>
+    <div class="outreach-hint">Placeholders: {name} {username} {category} {location} {followers} {phone} · Instagram DMs are typed and sent automatically; WhatsApp tabs open pre-filled for you to send with Enter · max 20 drafts per batch.</div>
     <div class="outreach-banner" id="outreachBanner" hidden>
       <span id="outreachBannerText"></span>
       <button class="icon-btn" id="btnDismissOutreach" title="Dismiss">✕</button>

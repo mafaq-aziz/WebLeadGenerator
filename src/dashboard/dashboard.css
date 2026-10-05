@@ -50,6 +50,12 @@ body {
   margin-right: 4px;
 }
 
+.count-selected {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: 12px;
+}
+
 .btn {
   appearance: none;
   border: 1px solid var(--line);
