@@ -346,7 +346,7 @@ src/
   background/outreach-runner.js   paced draft preparation: one tab per lead (WhatsApp
                                   deep link / IG DM); every tab must finish loading
                                   before the next one opens (WhatsApp 13-24 s apart,
-                                  IG 1.5-3.5 s), types via dm-drafter, tracks
+                                  IG 5-8 s), types via dm-drafter, tracks
                                   prepared/failed, activates the first tab when done;
                                   recovers interrupted runs
   export/excel.js                 bundled SheetJS workbook builder (+ message columns)

@@ -13,7 +13,7 @@
   function delay() {
     if (typeof paceMs === 'number') return paceMs;
     var wa = !!(active && active.channel === 'whatsapp');
-    return (wa ? 13000 : 1500) + Math.floor(Math.random() * (wa ? 11000 : 2000));
+    return (wa ? 13000 : 5000) + Math.floor(Math.random() * (wa ? 11000 : 3000));
   }
 
   function tabsApi() {
