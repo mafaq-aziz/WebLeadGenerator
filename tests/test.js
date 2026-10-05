@@ -1874,7 +1874,7 @@ async function run() {
       win.close();
     });
 
-    await test('dm-drafter types the draft into the DM composer and never sends', async () => {
+    await test('dm-drafter types the draft into the DM composer and sends it with Enter', async () => {
       const d = new JSDOM(`<!DOCTYPE html><html><body>
         <div role="dialog">
           <div contenteditable="true" aria-label="Message"></div>
@@ -1895,14 +1895,16 @@ async function run() {
 
       const resp = await respond('Hi A1 Salon, quick chat?');
       assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+      assert.strictEqual(resp.sent, true, 'instagram drafts are sent right after typing');
       const composer = win.document.querySelector('div[contenteditable="true"]');
       assert.strictEqual(composer.textContent, 'Hi A1 Salon, quick chat?');
-      assert.deepStrictEqual(keyEvents, [], 'no key events may be dispatched');
+      assert.deepStrictEqual(keyEvents, ['Enter'], 'exactly one Enter keydown must be dispatched');
 
       const second = await respond('Another draft');
       assert.strictEqual(second.ok, false);
       assert.strictEqual(second.reason, 'composer_not_empty');
       assert.strictEqual(composer.textContent, 'Hi A1 Salon, quick chat?', 'existing text must not be overwritten');
+      assert.deepStrictEqual(keyEvents, ['Enter'], 'no extra key events on refusal');
 
       win.close();
     });
@@ -2208,7 +2210,7 @@ async function run() {
     assert.strictEqual(sw.chrome._tabCalls.sent.length, 0, 'WhatsApp drafts use deep links only, no injection');
   });
 
-  await test('outreach: Instagram drafts wait for the DM page, then type without sending', async () => {
+  await test('outreach: Instagram drafts wait for the DM page, then type and send', async () => {
     const sw = loadServiceWorker();
     globalThis.FicinoOutreach.setPace(1);
     await sw.dispatch({ type: 'CLEAR_LEADS' });

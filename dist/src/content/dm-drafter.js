@@ -47,6 +47,23 @@
     return !!node.textContent;
   }
 
+  function pressEnter(node) {
+    var types = ['keydown', 'keypress', 'keyup'];
+    for (var i = 0; i < types.length; i++) {
+      var event;
+      try {
+        event = new root.KeyboardEvent(types[i], {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+          bubbles: true, cancelable: true
+        });
+      } catch (e) {
+        event = node.ownerDocument.createEvent('Event');
+        event.initEvent(types[i], true, true);
+      }
+      node.dispatchEvent(event);
+    }
+  }
+
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener(function (message, sender, respond) {
       if (!message || message.type !== 'OUTREACH_DRAFT') return false;
@@ -60,7 +77,19 @@
             return;
           }
           var done = insertText(node, text);
-          respond(done ? { ok: true } : { ok: false, reason: 'insert_failed' });
+          if (!done) {
+            respond({ ok: false, reason: 'insert_failed' });
+            return;
+          }
+          setTimeout(function () {
+            if (!String(node.textContent || '').trim()) insertText(node, text);
+            if (!String(node.textContent || '').trim()) {
+              respond({ ok: false, reason: 'insert_failed' });
+              return;
+            }
+            pressEnter(node);
+            respond({ ok: true, sent: true });
+          }, 300);
           return;
         }
         if (Date.now() > deadline) {

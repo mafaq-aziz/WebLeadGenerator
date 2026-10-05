@@ -119,6 +119,12 @@ const DM_PAGE = `<!DOCTYPE html>
 <div role="dialog" aria-label="Chat">
   <div contenteditable="true" aria-label="Message"></div>
 </div>
+<script>
+  window.__igEnter = 0;
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') window.__igEnter++;
+  });
+</script>
 </body></html>`;
 
 const WA_PAGE = `<!DOCTYPE html>
@@ -547,7 +553,15 @@ async function main() {
       const text = out.result.value;
       return typeof text === 'string' && text.indexOf('A1 Beauty Store') !== -1 ? text : null;
     }, 20000, 400);
-    console.log('  IG draft typed into the DM composer, not sent: "' + composerText.slice(0, 70) + '..."');
+    console.log('  IG draft typed into the DM composer: "' + composerText.slice(0, 70) + '..."');
+    const enterCount = await poll(async () => {
+      const out = await cdp.send('Runtime.evaluate', {
+        expression: '(function () { return window.__igEnter || 0; })()',
+        returnByValue: true
+      }, dmAttach.sessionId);
+      return out.result.value > 0 ? out.result.value : null;
+    }, 10000, 300);
+    console.log('  IG message sent automatically with Enter (keydown x' + enterCount + ')');
 
     console.log('  outreach: preparing WhatsApp draft for @a1_shop...');
     const waStart = JSON.parse(await fromDashboard(
@@ -579,7 +593,7 @@ async function main() {
     console.log('  WhatsApp draft tab opened with prefilled message, not sent: ' + waDecoded.slice(0, 80) + '...');
 
     console.log('SMOKE PASS: passive scan saved a lead, auto-search collected to target,' +
-      ' IG + WhatsApp drafts prepared without sending');
+      ' IG message sent automatically, WhatsApp draft prefilled without sending');
   } catch (err) {
     fail(err.message);
     const exited = await Promise.race([

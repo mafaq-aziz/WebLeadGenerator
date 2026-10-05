@@ -266,9 +266,11 @@
       var show = !!(outreach && outreach.state === 'done' && !outreach.dismissed);
       banner.hidden = !show;
       if (show) {
-        $('outreachBannerText').textContent =
-          'All drafts are ready — ' + (outreach.channel === 'instagram' ? 'Instagram DM' : 'WhatsApp') +
-          ': ' + (outreach.prepared || []).length + ' tabs typed. Send them one by one with Enter.';
+        $('outreachBannerText').textContent = outreach.channel === 'instagram'
+          ? 'Instagram: ' + (outreach.prepared || []).length +
+            ' message(s) typed and sent automatically. Check your DMs.'
+          : 'All drafts are ready — WhatsApp: ' + (outreach.prepared || []).length +
+            ' tabs prefilled. Send them one by one with Enter.';
       }
     }
   }

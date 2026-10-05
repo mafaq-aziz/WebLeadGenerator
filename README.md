@@ -16,9 +16,9 @@ Two modes plus a draft-based outreach workflow:
   from the saved leads and from the target count.
 - **Influencer filtering + outreach drafts** — profiles that look like influencers,
   vloggers or bloggers are flagged as `Ignore` (never deleted, never counted), and
-  selected leads can be opened as **pre-filled, unsent drafts** — WhatsApp tabs with the
-  message in the URL, Instagram DM tabs with the message typed into the composer — then
-  you send each one manually with Enter.
+  selected leads can be messaged: WhatsApp opens pre-filled tabs (message in the URL)
+  that you send yourself with Enter, while Instagram DM tabs are typed **and sent
+  automatically** — Instagram does not persist unsent composer text.
 
 All data stays in `chrome.storage.local`. Export to Excel or CSV from the popup.
 
@@ -96,8 +96,11 @@ what `npm run smoke` uses).
 
 ### Outreach drafts (WhatsApp / Instagram DM)
 
-The dashboard's **Outreach drafts** panel turns selected leads into drafts you review
-and send yourself — the extension never presses Enter and never sends anything.
+The dashboard's **Outreach drafts** panel prepares selected leads for messaging —
+one tab per lead, and the extension only ever types inside the tab it just opened
+for that lead. Instagram messages are typed and sent automatically (Instagram discards
+unsent composer text); WhatsApp tabs are pre-filled for you to review and send
+yourself — the extension never sends anything on WhatsApp.
 
 1. Edit the **WhatsApp message** and **Instagram message** templates and press
    **Save messages**. Placeholders: `{name}` `{username}` `{category}` `{location}`
@@ -114,8 +117,9 @@ and send yourself — the extension never presses Enter and never sends anything
      (one account, one live tab), so every draft actually gets written. A 20-lead batch
      takes about 5–8 minutes; the status shows `Preparing N/20` while it runs.
    - **Instagram DM** opens `https://www.instagram.com/direct/new/?to=<username>` per
-     lead and a content script types the rendered message into the composer — using
-     `insertText`, never keyboard events, and **never Enter**.
+     lead and a content script types the rendered message into the composer with
+     `insertText`, then presses **Enter to send it** — one plain Enter, in that one tab,
+     right after typing (Instagram does not keep unsent drafts).
 3. Leads without a phone/username, leads with a flagged (unverified) phone,
    `Ignore`d leads, and missing ids are skipped and listed under *failed* with the
    reason.
@@ -123,7 +127,8 @@ and send yourself — the extension never presses Enter and never sends anything
    `Drafts ready: N prepared`, and **a three-beep sound plays — keep the dashboard tab
    open for the sound** (browsers only allow audio right after you click, so press
    *Prepare drafts* in the dashboard, not the popup).
-5. Review each tab and press **Enter** yourself to send, one by one.
+5. WhatsApp: review each pre-filled tab and press **Enter** yourself to send, one by
+   one. Instagram messages are already sent by the time the banner appears.
 6. **Mark prepared as Contacted** sets the prepared leads' status in one step.
 7. **Stop** (`OUTREACH_STOP`) aborts a run; if the browser restarts mid-run the state
    shows `Interrupted` and can simply be started again.
@@ -327,7 +332,7 @@ src/
     mutation-observer.js          SPA navigation + late-rendered nodes
     instagram-scanner.js          passive orchestrator; sends PROCESS_CANDIDATE to the SW
     dm-drafter.js                 runs on /direct/* only; types the prepared draft into
-                                  the composer (insertText, never Enter)
+                                  the composer (insertText), then presses Enter to send
     auto-search.js                active loop: harvest posts -> caption contact stash
                                   -> author profile -> extract; holds profiles whose
                                   only link is a Linktree
@@ -390,12 +395,14 @@ statistics consistent under concurrent page activity.
   accounts rather than hiding real businesses. Check the *Influencers (ignored)* chip
   once in a while and flip anything back to `New` (or run **Flag influencers** after
   editing bios).
-- Outreach prepares drafts only — it never sends, never re-sends, and never opens a
-  second chat for a lead you already contacted. The completion **beep plays in the
-  dashboard tab** (keep it open); WhatsApp drafts require being logged into
-  WhatsApp Web, and Instagram drafts depend on the current DM composer markup — if
-  Instagram changes it, the draft is reported as failed (`no_composer`) instead of
-  typing blindly.
+- Outreach only ever types and presses Enter inside the tab it opened for that lead —
+  it never re-sends, never opens a second chat for a lead you already contacted, and
+  never sends anything on WhatsApp (those drafts are yours to send). Instagram sends
+  are a single Enter right after typing, in the one tab prepared for that lead. The
+  completion **beep plays in the dashboard tab** (keep it open); WhatsApp drafts
+  require being logged into WhatsApp Web, and Instagram messages depend on the current
+  DM composer markup — if Instagram changes it, the lead is reported as failed
+  (`no_composer`) instead of typing blindly.
 - Batches are capped at 20 tabs per run (extra ids are reported as `batch_limit`) so a
   mis-click cannot open hundreds of tabs.
 - The smoke test requires `openssl` on PATH (or `C:\msys64\ucrt64\bin\openssl.exe`).
