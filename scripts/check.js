@@ -61,7 +61,7 @@ if (manifest) {
   }
 
   const hosts = manifest.host_permissions || [];
-  const allowedHostRes = [/instagram\.com/, /linktr\.ee/];
+  const allowedHostRes = [/instagram\.com/, /linktr\.ee/, /google\.com/];
   const badHost = hosts.filter((h) => !allowedHostRes.some((re) => re.test(h)));
   if (badHost.length) fail('host_permissions outside instagram.com/linktr.ee: ' + badHost.join(', '));
 
@@ -109,6 +109,16 @@ if (manifest) {
     fail('linktree resolver content script must include normalizer.js and linktree-resolver.js');
   } else if (rIdx('src/content/normalizer.js') > rIdx('src/content/linktree-resolver.js')) {
     fail('content script order wrong: normalizer.js must load before linktree-resolver.js');
+  }
+
+  const mapsEntry = (manifest.content_scripts || []).find((cs) => (cs.js || []).includes('src/content/maps-search.js'));
+  const mapsJs = (mapsEntry || {}).js || [];
+  const mIdx = (name) => mapsJs.indexOf(name);
+  if (mIdx('src/content/maps-search.js') === -1 || mIdx('src/content/normalizer.js') === -1 || mIdx('src/shared/logger.js') === -1) {
+    fail('maps search content script must include logger.js, normalizer.js and maps-search.js');
+  } else if (mIdx('src/shared/logger.js') > mIdx('src/content/maps-search.js') ||
+             mIdx('src/content/normalizer.js') > mIdx('src/content/maps-search.js')) {
+    fail('content script order wrong: logger.js and normalizer.js must load before maps-search.js');
   }
 }
 

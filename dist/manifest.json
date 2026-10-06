@@ -3,7 +3,7 @@
   "name": "FICINO Instagram Lead Scraper",
   "short_name": "FICINO Lead Scraper",
   "version": "1.0.0",
-  "description": "Local-only Instagram business lead scraper. Observes pages you already have open, extracts publicly visible business info, and stores everything on your device. No API, no backend, no telemetry.",
+  "description": "Local-only Instagram and Google Maps business lead scraper. Observes pages you already have open, extracts publicly visible business info, and stores everything on your device. No API, no backend, no telemetry.",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -22,7 +22,7 @@
     "service_worker": "src/background/service-worker.js"
   },
   "permissions": ["storage"],
-  "host_permissions": ["https://www.instagram.com/*", "https://linktr.ee/*"],
+  "host_permissions": ["https://www.instagram.com/*", "https://linktr.ee/*", "https://www.google.com/*"],
   "content_scripts": [
     {
       "matches": ["https://www.instagram.com/*"],
@@ -50,6 +50,15 @@
     {
       "matches": ["https://www.instagram.com/*"],
       "js": ["src/content/dm-drafter.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.google.com/maps/*"],
+      "js": [
+        "src/shared/logger.js",
+        "src/content/normalizer.js",
+        "src/content/maps-search.js"
+      ],
       "run_at": "document_idle"
     }
   ],

@@ -5,9 +5,11 @@
    Extensions.loadUnpacked (branded Chrome removed --load-extension in M137), opens the
    fixture page, then reads chrome.storage over CDP to prove:
    1) the content script scanned and the service worker saved the profile lead, and
-   2) an injected auto-search session harvests posts, opens the author profile,
-      resolves its Linktree (opened in the driven tab), submits it with saveAll,
-      and stops at the configured target. */
+    2) an injected auto-search session harvests posts, opens the author profile,
+       resolves its Linktree (opened in the driven tab), submits it with saveAll,
+       and stops at the configured target, and
+    3) a Google Maps search opens its results, visits every place page, saves the
+       places without a website and excludes the one that lists one. */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -160,9 +162,56 @@ const WA_PAGE = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>WhatsApp</title></head>
 <body><main><h1>WhatsApp Web</h1></main></body></html>`;
 
-const fixtureHits = { linktree: 0 };
+const MAPS_RESULTS = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>spa in dubai - Google Maps</title></head>
+<body><div role="feed">
+  <a href="/maps/place/Spa+One/@25.2000000,55.3000000,17z/data=!3m1!1b3">Spa One</a>
+  <a href="/maps/place/Glow+Med+Spa/@25.2100000,55.3100000,17z/data=!3m1!1b3">Glow Med Spa</a>
+  <a href="/maps/place/Body+Lounge/@25.2200000,55.3200000,17z/data=!3m1!1b3">Body Lounge</a>
+</div></body></html>`;
+
+const MAPS_SPA = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Spa One - Google Maps</title></head>
+<body><main>
+  <h1>Spa One</h1>
+  <span>Beauty salon</span>
+  <div data-item-id="address">Marina Walk, Dubai</div>
+  <a href="tel:+971501234567">+971 50 123 4567</a>
+</main></body></html>`;
+
+const MAPS_GLOW = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Glow Med Spa - Google Maps</title></head>
+<body><main>
+  <h1>Glow Med Spa</h1>
+  <span>Medical spa</span>
+  <div data-item-id="address">Jumeirah Beach, Dubai</div>
+  <a data-item-id="authority" data-value="Website" href="https://glowmedspa.example/">Website</a>
+</main></body></html>`;
+
+const MAPS_BODY = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Body Lounge - Google Maps</title></head>
+<body><main>
+  <h1>Body Lounge</h1>
+  <span>Spa</span>
+  <div data-item-id="address">Downtown, Dubai</div>
+  <a href="tel:+971507778888">+971 50 777 8888</a>
+</main></body></html>`;
+
+const fixtureHits = { linktree: 0, mapsResults: 0, mapsPlaces: 0 };
 
 function routeFixture(host, url) {
+  if (/^www\.google\.com/i.test(host || '')) {
+    if (/^\/maps\/place\//.test(url)) {
+      fixtureHits.mapsPlaces++;
+      if (/^\/maps\/place\/Glow\+Med\+Spa/.test(url)) return MAPS_GLOW;
+      if (/^\/maps\/place\/Body\+Lounge/.test(url)) return MAPS_BODY;
+      if (/^\/maps\/place\/Spa\+One/.test(url)) return MAPS_SPA;
+      console.log('  smoke: unknown maps place path ' + url);
+      return MAPS_RESULTS;
+    }
+    fixtureHits.mapsResults++;
+    return MAPS_RESULTS;
+  }
   if (/^linktr\.ee/i.test(host || '')) {
     fixtureHits.linktree++;
     return LINKTREE_A1;
@@ -187,7 +236,7 @@ function genCert(dir) {
   const crt = path.join(dir, 'cert.pem');
   const args = ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', key, '-out', crt,
     '-days', '2', '-nodes', '-subj', '/CN=www.instagram.com',
-    '-addext', 'subjectAltName=DNS:www.instagram.com'];
+    '-addext', 'subjectAltName=DNS:www.instagram.com,DNS:www.google.com'];
   try {
     execFileSync('openssl', args, { stdio: 'pipe' });
   } catch (e) {
@@ -291,7 +340,7 @@ async function main() {
     '--remote-debugging-pipe',
     '--enable-unsafe-extension-debugging',
     '--user-data-dir=' + path.join(tmp, 'profile'),
-    '--host-resolver-rules=MAP www.instagram.com 127.0.0.1:' + HTTP_PORT + ', MAP linktr.ee 127.0.0.1:' + HTTP_PORT + ', MAP web.whatsapp.com 127.0.0.1:' + HTTP_PORT,
+    '--host-resolver-rules=MAP www.instagram.com 127.0.0.1:' + HTTP_PORT + ', MAP linktr.ee 127.0.0.1:' + HTTP_PORT + ', MAP web.whatsapp.com 127.0.0.1:' + HTTP_PORT + ', MAP www.google.com 127.0.0.1:' + HTTP_PORT,
     '--ignore-certificate-errors',
     '--no-first-run',
     '--no-default-browser-check',
@@ -679,8 +728,86 @@ async function main() {
     console.log('  merged 2 leads into @a1_shop (search term "' + mergedLead.search_term + '", notes: "' +
       mergedLead.notes.slice(0, 60) + '")');
 
+    console.log('  starting Google Maps search "spa in dubai" (target 2)...');
+    const mapsStart = JSON.parse(await fromDashboard(
+      'new Promise(function (resolve) {' +
+      ' chrome.runtime.sendMessage({ type: "MAPS_START", payload: { queries: ["spa in dubai"], target: 2 } },' +
+      ' function (r) { resolve(JSON.stringify(r || null)); }); })'
+    ));
+    if (!mapsStart || !mapsStart.started) {
+      throw new Error('maps search did not start: ' + JSON.stringify(mapsStart));
+    }
+
+    const mapsFinal = await poll(async () => {
+      const out = await cdp.send('Runtime.evaluate', {
+        expression: 'chrome.storage.local.get(["mapsSearch","leads","statistics","settings"])',
+        awaitPromise: true,
+        returnByValue: true
+      }, swSession);
+      const data = out.result.value || {};
+      const s = data.mapsSearch || {};
+      if (s.active || s.phase === 'idle') return null;
+      return data;
+    }, 180000, 1000);
+
+    const mrun = mapsFinal.mapsSearch || {};
+    if (mrun.phase !== 'done' || (mrun.totalCollected || 0) !== 2) {
+      throw new Error('maps search did not finish at target: ' + JSON.stringify(mrun));
+    }
+    const mleads = mapsFinal.leads || [];
+    const spaLead = mleads.find((l) => l.instagram_name === 'Spa One');
+    const bodyLead = mleads.find((l) => l.instagram_name === 'Body Lounge');
+    const glowLead = mleads.find((l) => l.instagram_name === 'Glow Med Spa');
+    if (!spaLead || !bodyLead) {
+      throw new Error('places without a website must be saved: ' + JSON.stringify(mleads.map((l) => l.instagram_name)));
+    }
+    if (glowLead) throw new Error('place with a website must be excluded: ' + JSON.stringify(glowLead));
+    if (!spaLead.maps_key || spaLead.maps_key.indexOf('spa-one') !== 0) {
+      throw new Error('maps_key missing or malformed: ' + JSON.stringify(spaLead.maps_key));
+    }
+    if (spaLead.instagram_username || spaLead.instagram_url) {
+      throw new Error('maps lead must not fake an instagram identity: ' + JSON.stringify({
+        u: spaLead.instagram_username, i: spaLead.instagram_url
+      }));
+    }
+    if (spaLead.search_term !== 'spa in dubai') {
+      throw new Error('maps lead must carry its search term: ' + JSON.stringify(spaLead.search_term));
+    }
+    if (spaLead.phone_normalized !== '+971501234567') {
+      throw new Error('phone from the place panel must be saved: ' + JSON.stringify(spaLead.phone_normalized));
+    }
+    if (spaLead.location !== 'Marina Walk, Dubai') {
+      throw new Error('address must be saved as location: ' + JSON.stringify(spaLead.location));
+    }
+    if (!spaLead.source_page || spaLead.source_page.indexOf('https://www.google.com/maps/place/Spa+One/') !== 0) {
+      throw new Error('source_page must link the place page: ' + JSON.stringify(spaLead.source_page));
+    }
+    if (spaLead.website) throw new Error('maps lead website must stay empty: ' + spaLead.website);
+    if (spaLead.status !== 'New') throw new Error('maps lead status must be New: ' + spaLead.status);
+    if (bodyLead.phone_normalized !== '+971507778888') {
+      throw new Error('second place phone missing: ' + JSON.stringify(bodyLead.phone_normalized));
+    }
+    if (bodyLead.search_term !== 'spa in dubai') {
+      throw new Error('second place not stamped with the search term: ' + JSON.stringify(bodyLead.search_term));
+    }
+    const mstats = mapsFinal.statistics || {};
+    if (!(mstats.withWebsite >= 1)) {
+      throw new Error('website-excluded place must be counted in withWebsite: ' + JSON.stringify(mstats));
+    }
+    if ((mapsFinal.settings || {}).autoSearchSource !== 'maps') {
+      throw new Error('source switch must be persisted, got: ' + JSON.stringify((mapsFinal.settings || {}).autoSearchSource));
+    }
+    if (fixtureHits.mapsResults < 1) throw new Error('maps results page was never opened');
+    if (fixtureHits.mapsPlaces < 3) {
+      throw new Error('all three places must be opened, got ' + fixtureHits.mapsPlaces);
+    }
+    console.log('  maps run done: ' + spaLead.instagram_name + ' and ' + bodyLead.instagram_name +
+      ' saved (phones ' + spaLead.phone_normalized + ', ' + bodyLead.phone_normalized +
+      '), website place excluded, withWebsite=' + mstats.withWebsite);
+
     console.log('SMOKE PASS: passive scan saved a lead, auto-search collected to target,' +
-      ' IG message sent automatically, WhatsApp draft prefilled without sending, leads merged');
+      ' IG message sent automatically, WhatsApp draft prefilled without sending, leads merged,' +
+      ' Google Maps search saved no-website places and excluded the listed one');
   } catch (err) {
     fail(err.message);
     const exited = await Promise.race([

@@ -1,9 +1,9 @@
 # WebLeadGenerator
 
-**Local-only Instagram lead scraper + outreach drafts — Chrome extension
-(Manifest V3).** In the browser it appears as *FICINO Instagram Lead Scraper*.
+**Local-only Instagram + Google Maps lead scraper + outreach drafts — Chrome
+extension (Manifest V3).** In the browser it appears as *FICINO Instagram Lead Scraper*.
 
-Two modes plus a draft-based outreach workflow:
+Three modes plus a draft-based outreach workflow:
 
 - **Passive scan** — observes Instagram pages you already visit, extracts publicly
   visible business information, and saves **only leads that show no visible website**.
@@ -20,6 +20,14 @@ Two modes plus a draft-based outreach workflow:
   is applied in this mode** — every
   visited profile is extracted; only profiles that already have a website are excluded
   from the saved leads and from the target count.
+- **Google Maps search** — the same popup search box has an **Instagram / Google
+  Maps** source switch: on Google Maps it searches places instead of posts. The
+  extension opens the Maps results, opens **every** place page in turn (name,
+  category, address, phone, website from the place panel), and saves **only places
+  without a website** — the same rule as Instagram. One box, one target, one
+  progress display; starting one mode stops the other. Saved maps leads carry the
+  place URL as `source_page`, the address as location, the panel phone and the
+  search term, and the dashboard shows **Maps ↗** instead of an @username.
 - **Influencer filtering + outreach drafts** — profiles that look like influencers,
   vloggers or bloggers are flagged as `Ignore` (never deleted, never counted), and
   selected leads can be messaged: WhatsApp opens pre-filled tabs (message in the URL)
@@ -149,7 +157,7 @@ yourself — the extension never sends anything on WhatsApp.
 
 Tabs opened this way need no extra permissions: `chrome.tabs.create` and the WhatsApp /
 DM URLs are plain navigation — the extension still only holds `storage` permission plus
-Instagram/Linktree host access.
+Instagram/Linktree/Google Maps host access.
 
 ### Phone number verification
 
@@ -252,10 +260,42 @@ displays, so every saved phone is verified:
 While an Auto Search run is active the passive scanner pauses so each profile is
 submitted exactly once.
 
+### Google Maps search mode
+
+1. In the popup, press the **Google Maps** switch next to the search box (the box
+   itself is shared — same terms field, same target field, same Start/Stop button).
+2. Enter place searches (`spa in dubai`, `laser clinic Dubai`, …), one per line or
+   comma-separated, and the number of **places to collect per term** (1–500).
+3. Press **Start Search**. The extension opens
+   `google.com/maps/search/?q=…` in a tab it drives exactly like Auto Search —
+   same random 2–4 second pacing: it harvests every `/maps/place/…` link from the
+   results, auto-scrolls, opens each place page one at a time, and reads the place
+   panel (name, category, address, `tel:` phone, website).
+4. **Only places with no website are saved** — places that list a website are
+   opened and counted in statistics (*With website*) but skipped, exactly like the
+   Instagram rule. Saved leads get a `maps_key` identity (no fake @username), the
+   place URL as `source_page`, the address as `location`, the panel phone (verified
+   like every other number) and the current **search term**. When a term reaches
+   its target (or its results run out) the run continues with the next term; the
+   last term stops the run.
+5. The dashboard's **Instagram / Maps** column shows **Maps ↗** for maps leads
+   (click to reopen the place); `@username` cells stay as they are. WhatsApp
+   outreach works with maps leads out of the box — only Instagram DM drafts need a
+   username and skip maps leads for that reason.
+6. Press the **Instagram** switch to go back. Starting one mode always stops the
+   other (`Stopped — Google Maps search started` / `Stopped — Instagram search
+   started`), so only one run is ever active.
+
+Google Maps may show a consent/cookie interstitial on `consent.google.com`, a
+host the extension has no access to — the driver cannot answer it. If the run
+reports *blocked* or finds no results, complete the interstitial by hand in the
+driven tab and start the search again.
+
 ### Toolbar popup
 
-- Auto Search: search terms (one per line / comma-separated, run sequentially),
-  target per term, start/stop, live progress with `term i/N` and session total
+- Auto Search: **Instagram / Google Maps** source switch over one shared search
+  box (terms, per-term target, start/stop, live progress with `term i/N` and
+  session total — whichever source is active)
 - Start/stop passive scanning (per-session toggle)
 - Live counters: scanned, businesses, with/without website, saved, duplicates
 - **Default country code for numbers without +CC** (fallback used by *Fix numbers*)
@@ -264,7 +304,8 @@ submitted exactly once.
 ### Dashboard
 
 - Search and filter leads (including the *Influencers (ignored)* and *Bad number* chips),
-  edit status/notes
+  edit status/notes — the name column is **Instagram / Maps**: `@username` links
+  for Instagram leads, **Maps ↗** (the place page) for Google Maps leads
 - **Search term** dropdown: shows every term that produced leads with per-term counts
   (*No search term* collects passive/manual finds) — selecting one filters the table;
   each row carries its term as a badge, and the term is also part of the search box
@@ -287,9 +328,12 @@ submitted exactly once.
 
 ## Privacy
 
-- Only permission: `storage` + host access to `https://www.instagram.com/*` and
-  `https://linktr.ee/*` (the second host exists solely so Auto Search can open a
-  profile's Linktree and read it with a content script).
+- Only permission: `storage` + host access to `https://www.instagram.com/*`,
+  `https://linktr.ee/*` (so Auto Search can open a profile's Linktree and read it
+  with a content script) and `https://www.google.com/*` (so the Google Maps search
+  mode can read the results and place pages it drives — no Google service is ever
+  *fetched* by the extension; everything is read from the pages the mode itself
+  opens).
 - Outreach drafts only *open tabs* (`chrome.tabs.create` needs no permission): the
   WhatsApp deep link and the Instagram profile page are ordinary navigations, the message is
   either in the URL or typed by the dm-drafter content script on `instagram.com` — no extra
@@ -297,14 +341,14 @@ submitted exactly once.
 - Data is written exclusively to `chrome.storage.local` on your computer.
 - No network requests are made by the extension (verified by `scripts/check.js`, which
   fails the build on any remote `<script src>`, `fetch` to a non-Instagram origin, or
-  host permission outside `instagram.com`/`linktr.ee`).
+  host permission outside `instagram.com`/`linktr.ee`/`google.com`).
 - Exported files are produced in-browser via Blob download.
 
 ## Development
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 89 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 93 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -314,13 +358,14 @@ npm run smoke    # real headless Chrome end-to-end test
 
 `scripts/smoke.js`:
 
-1. Generates a self-signed certificate for `www.instagram.com` and serves an
-   Instagram-shaped fixture over HTTPS on a random localhost port (plus a direct-message
-   page under `/direct/` and a stand-in for `web.whatsapp.com`).
+1. Generates a self-signed certificate for `www.instagram.com` + `www.google.com`
+   and serves an Instagram-shaped fixture over HTTPS on a random localhost port
+   (plus a direct-message page, a stand-in for `web.whatsapp.com`, and Google Maps
+   results/place-page fixtures).
 2. Launches headless Chrome with `--remote-debugging-pipe
    --enable-unsafe-extension-debugging` and a throwaway profile, mapping
-   `www.instagram.com`, `linktr.ee` and `web.whatsapp.com` to the fixture via
-   `--host-resolver-rules`.
+   `www.instagram.com`, `linktr.ee`, `web.whatsapp.com` and `www.google.com` to the
+   fixture via `--host-resolver-rules`.
 3. Installs `dist/` with the CDP `Extensions.loadUnpacked` command.
 4. Opens the fixture page, waits for the content script message to wake the service
    worker, then reads `chrome.storage.local` over CDP.
@@ -350,9 +395,18 @@ npm run smoke    # real headless Chrome end-to-end test
    tab URL is `web.whatsapp.com/send?phone=393331234567&text=…` with the rendered
    message in it (prefilled, not sent).
 9. Sends `MERGE_LEADS` for the auto-search lead plus the passive profile lead:
-   asserts the merge reports 2 merged into the first-selected id, the lead list
-   shrinks by exactly one, the merged-away lead is gone, and the survivor keeps
-   the unioned `search_term`.
+    asserts the merge reports 2 merged into the first-selected id, the lead list
+    shrinks by exactly one, the merged-away lead is gone, and the survivor keeps
+    the unioned `search_term`.
+10. Sends `MAPS_START` for `spa in dubai` (target 2) and asserts the Google Maps
+    run opened the results fixture, visited all three place pages
+    (server-side hit counter), **saved the two places without a website**
+    (Spa One/Body Lounge — `maps_key`, place URL as `source_page`, address as
+    `location`, phones `+971501234567`/`+971507778888`, `search_term` stamped,
+    empty username/url), **excluded the place that lists a website**
+    (Glow Med Spa, counted in `statistics.withWebsite >= 1`), persisted the source
+    switch (`settings.autoSearchSource === 'maps'`), and finished at target
+    (`mapsSearch.phase === 'done'`, `totalCollected === 2`).
 
 ## Architecture
 
@@ -384,13 +438,20 @@ src/
     auto-search.js                active loop: harvest posts -> caption contact stash
                                   -> author profile -> extract; holds profiles whose
                                   only link is a Linktree
+    maps-search.js                Google Maps driver (runs on google.com/maps):
+                                  claim -> harvest /maps/place/ links -> open each
+                                  place -> extract the panel (name, category,
+                                  address, tel:, website) -> submit with saveAll;
+                                  cycles with the same 2-4 s pacing
     linktree-resolver.js          runs on linktr.ee during Auto Search; reports the first
                                   real website link (or none) back to the SW
   background/service-worker.js    single writer for leads/statistics; auto-search queue
                                   (multi-term: sequential per-term runs with automatic
                                   advance, keyword→hashtag surface fallback when a
                                   search page comes up empty, search-term stamping on
-                                  saved leads),
+                                  saved leads) and the Google Maps queue (same
+                                  multi-term/advance/stop-other-mode semantics,
+                                  `maps_key` lead identity, place URL validation),
                                   tab driving (claim/navigate/advance), Linktree
                                   hold/resolve handlers, post-contact stash, influencer
                                   flagging, the target counter (counts only saved,
@@ -404,13 +465,14 @@ src/
                                   recovers interrupted runs
   export/excel.js                 bundled SheetJS workbook builder (+ message columns)
   export/csv.js                   CSV with BOM + RFC quoting (shares column model)
-  popup/                          toolbar UI
+  popup/                          toolbar UI (Instagram / Google Maps source switch
+                                  over one shared search box)
   dashboard/                      management UI, settings, export buttons, search-term
                                   filter, merge-selected, outreach
-                                  panel with templates, beep and flag-influencers
+                                   panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-tests/                            89-test suite
+tests/                            93-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to
@@ -448,6 +510,13 @@ statistics consistent under concurrent page activity.
   and retries it as derived hashtags before moving on, but if Instagram empties
   hashtag pages as well, there is nothing the extension can scrape that session —
   check Instagram for a "Try Again Later" / restriction notice and rerun later.
+- The Google Maps mode reads only what the driven place pages render — name,
+  category, address, phone and website come from the visible panel (no Places API,
+  no hidden data). Google's consent/cookie interstitial lives on
+  `consent.google.com`, a host the extension deliberately does not access, so the
+  driver cannot answer it: if it appears, complete it by hand and restart the run.
+  As with Instagram, heavy automated pacing can trigger a challenge — the run
+  reports *blocked* instead of retrying through it.
 - Export contains whatever was stored locally; deleting the extension or clearing
   site data removes the leads.
 - Influencer detection is a conservative heuristic: it deliberately misses ambiguous

@@ -13,6 +13,7 @@
     debug: false,
     autoSearchQuery: '',
     autoSearchTarget: 30,
+    autoSearchSource: 'instagram',
     defaultCountryCode: '',
     phoneCleanupVersion: 0,
     permitExcludeVersion: 0
@@ -28,6 +29,7 @@
   };
 
   var KEY_AUTOSEARCH = 'autoSearch';
+  var KEY_MAPSSEARCH = 'mapsSearch';
 
   var DEFAULT_AUTOSEARCH = {
     active: false,
@@ -49,6 +51,24 @@
     pending: [],
     hold: null,
     postContacts: {},
+    updatedAt: 0
+  };
+
+  var DEFAULT_MAPSSEARCH = {
+    active: false,
+    query: '',
+    queries: [],
+    queryIndex: 0,
+    totalCollected: 0,
+    target: 30,
+    collected: 0,
+    phase: 'idle',
+    message: '',
+    tabId: null,
+    searchUrl: '',
+    visitedPlaces: [],
+    visitedKeys: [],
+    pending: [],
     updatedAt: 0
   };
 
@@ -80,6 +100,7 @@
     settings: Object.assign({}, DEFAULT_SETTINGS),
     statistics: Object.assign({}, DEFAULT_STATS),
     autoSearch: Object.assign({}, DEFAULT_AUTOSEARCH),
+    mapsSearch: Object.assign({}, DEFAULT_MAPSSEARCH),
     outreach: Object.assign({}, DEFAULT_OUTREACH)
   };
 
@@ -136,6 +157,7 @@
     DEFAULT_SETTINGS: DEFAULT_SETTINGS,
     DEFAULT_STATS: DEFAULT_STATS,
     DEFAULT_AUTOSEARCH: DEFAULT_AUTOSEARCH,
+    DEFAULT_MAPSSEARCH: DEFAULT_MAPSSEARCH,
     DEFAULT_OUTREACH: DEFAULT_OUTREACH,
 
     getLeads: function () {
@@ -208,6 +230,22 @@
         var next = Object.assign({}, current, patch || {}, { updatedAt: Date.now() });
         return set({ autoSearch: next }).then(function () {
           if (useMemory()) memoryFallback.autoSearch = next;
+          return next;
+        });
+      });
+    },
+
+    getMapsSearch: function () {
+      return get(KEY_MAPSSEARCH).then(function (items) {
+        return Object.assign({}, DEFAULT_MAPSSEARCH, items[KEY_MAPSSEARCH] || {});
+      });
+    },
+
+    setMapsSearch: function (patch) {
+      return Storage.getMapsSearch().then(function (current) {
+        var next = Object.assign({}, current, patch || {}, { updatedAt: Date.now() });
+        return set({ mapsSearch: next }).then(function () {
+          if (useMemory()) memoryFallback.mapsSearch = next;
           return next;
         });
       });

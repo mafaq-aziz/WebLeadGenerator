@@ -179,7 +179,11 @@
           escapeHtml(lead.phone_replaced_raw) + ' to match the profile bio">↻</span>';
       }
       var name = lead.instagram_name || lead.instagram_username;
-      var url = lead.instagram_url || ('https://www.instagram.com/' + lead.instagram_username + '/');
+      var isMaps = !!lead.maps_key;
+      var url = lead.instagram_url || (isMaps ? (lead.source_page || '') : ('https://www.instagram.com/' + lead.instagram_username + '/'));
+      var handleCell = isMaps
+        ? (url ? '<a class="cell-link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">Maps ↗</a>' : '—')
+        : '<a class="cell-link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">@' + escapeHtml(lead.instagram_username) + '</a>';
 
       return '' +
         '<tr data-id="' + escapeHtml(lead.id) + '">' +
@@ -190,7 +194,7 @@
             (lead.search_term ? '<div class="cell-sub"><span class="term-chip" title="Found by this search term">⌕ ' + escapeHtml(lead.search_term) + '</span></div>' : '') +
             (lead.bio ? '<div class="cell-bio">' + escapeHtml(lead.bio) + '</div>' : '') +
           '</td>' +
-          '<td><a class="cell-link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">@' + escapeHtml(lead.instagram_username) + '</a></td>' +
+          '<td>' + handleCell + '</td>' +
           '<td' + (lead.phone_issue ? ' class="phone-bad"' : '') + '>' + phoneCell + '</td>' +
           '<td>' + escapeHtml(lead.email || '—') + '</td>' +
           '<td>' + escapeHtml(lead.location || '—') + '</td>' +

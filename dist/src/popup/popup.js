@@ -57,11 +57,15 @@
     els.toggleSavePhone.checked = settings.savePhone !== false;
     els.inputCountryCode.value = settings.defaultCountryCode || '';
     els.toggleDebug.checked = !!settings.debug;
+    activeSource = settings.autoSearchSource === 'maps' ? 'maps' : 'instagram';
+    updateSourceUI();
   }
 
   var AUTO_PHASE_TEXT = {
     idle: 'Idle',
     harvest: 'Searching results…',
+    results: 'Searching results…',
+    place: 'Opening place…',
     post: 'Opening post…',
     profile: 'Extracting profile…',
     linktree: 'Opening Linktree…',
@@ -70,6 +74,29 @@
     exhausted: 'No more results',
     done: ''
   };
+
+  var activeSource = 'instagram';
+  var searchStates = { auto: null, maps: null };
+
+  function updateSourceUI() {
+    if (!els.srcInstagram) return;
+    els.srcInstagram.classList.toggle('active', activeSource === 'instagram');
+    els.srcMaps.classList.toggle('active', activeSource === 'maps');
+    if (document.activeElement !== els.autoQuery) {
+      els.autoQuery.placeholder = activeSource === 'maps'
+        ? 'e.g. medspa in dubai\nbeauty salon in abu dhabi'
+        : 'e.g. salon london\nnail bar\nbrow studio';
+    }
+  }
+
+  function setSource(source) {
+    if (activeSource === source) return;
+    activeSource = source;
+    updateSourceUI();
+    saveSettingsPatch({ autoSearchSource: source }).then(function () {
+      showToast(source === 'maps' ? 'Source: Google Maps' : 'Source: Instagram');
+    });
+  }
 
   function renderAutoSearch(s, settings) {
     s = s || {};
@@ -114,16 +141,22 @@
     }
   }
 
-  function render(snapshot, autoSearch) {
+  function render(snapshot, autoSearch, mapsSearch) {
+    searchStates.auto = autoSearch || null;
+    searchStates.maps = mapsSearch || null;
     renderStats(snapshot.statistics || {});
     renderStatus(snapshot.settings || {});
     renderSettings(snapshot.settings || {});
-    renderAutoSearch(autoSearch, snapshot.settings || {});
+    var settings = snapshot.settings || {};
+    var picked = autoSearch && autoSearch.active ? autoSearch
+      : (mapsSearch && mapsSearch.active ? mapsSearch
+        : (settings.autoSearchSource === 'maps' ? mapsSearch : autoSearch));
+    renderAutoSearch(picked, settings);
   }
 
   function refresh() {
-    return Promise.all([Storage.getSnapshot(), Storage.getAutoSearch()]).then(function (parts) {
-      render(parts[0], parts[1]);
+    return Promise.all([Storage.getSnapshot(), Storage.getAutoSearch(), Storage.getMapsSearch()]).then(function (parts) {
+      render(parts[0], parts[1], parts[2]);
     }).catch(function (err) {
       if (Log) Log.error('Popup', 'snapshot failed:', err && err.message);
       showToast('Could not read local data', true);
@@ -168,7 +201,12 @@
     els.btnAutoStop = $('btnAutoStop');
     els.autoStatus = $('autoStatus');
     els.autoBar = $('autoBar');
+    els.srcInstagram = $('srcInstagram');
+    els.srcMaps = $('srcMaps');
     els.toast = $('toast');
+
+    els.srcInstagram.addEventListener('click', function () { setSource('instagram'); });
+    els.srcMaps.addEventListener('click', function () { setSource('maps'); });
 
     els.btnAutoStart.addEventListener('click', function () {
       var query = els.autoQuery.value.trim();
@@ -179,25 +217,37 @@
         showToast('Enter a search term first', true);
         return;
       }
+      var source = activeSource;
+      var startType = source === 'maps' ? 'MAPS_START' : 'AUTOSEARCH_START';
       els.btnAutoStart.disabled = true;
-      chrome.runtime.sendMessage({ type: 'AUTOSEARCH_START', payload: { query: query, target: target } }, function (res) {
+      chrome.runtime.sendMessage({ type: startType, payload: { query: query, target: target } }, function (res) {
         void chrome.runtime.lastError;
         els.btnAutoStart.disabled = false;
         if (!res || !res.started) {
-          showToast('Could not start auto search', true);
+          showToast(source === 'maps' ? 'Could not start Maps search' : 'Could not start auto search', true);
           return;
         }
-        showToast(res.terms > 1
-          ? 'Auto search started — ' + res.terms + ' terms, kept separate per lead'
-          : 'Auto search started');
+        if (source === 'maps') {
+          showToast(res.terms > 1
+            ? 'Maps search started — ' + res.terms + ' terms'
+            : 'Google Maps search started');
+        } else {
+          showToast(res.terms > 1
+            ? 'Auto search started — ' + res.terms + ' terms, kept separate per lead'
+            : 'Auto search started');
+        }
         refresh();
       });
     });
 
     els.btnAutoStop.addEventListener('click', function () {
-      chrome.runtime.sendMessage({ type: 'AUTOSEARCH_STOP' }, function (res) {
+      var type;
+      if (searchStates.auto && searchStates.auto.active) type = 'AUTOSEARCH_STOP';
+      else if (searchStates.maps && searchStates.maps.active) type = 'MAPS_STOP';
+      else type = activeSource === 'maps' ? 'MAPS_STOP' : 'AUTOSEARCH_STOP';
+      chrome.runtime.sendMessage({ type: type }, function (res) {
         void chrome.runtime.lastError;
-        showToast(res && res.stopped ? 'Auto search stopped' : 'Could not stop', !res);
+        showToast(res && res.stopped ? 'Search stopped' : 'Could not stop', !res);
         refresh();
       });
     });

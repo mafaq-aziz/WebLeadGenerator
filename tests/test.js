@@ -76,7 +76,14 @@ function makeMockChrome() {
         setTimeout(() => cb && cb({ ok: true }), 0);
       },
       query(info, cb) {
-        setTimeout(() => cb(tabCalls.list.filter((t) => !info || !info.url || String(t.url || '').indexOf('https://www.instagram.com') === 0)), 0);
+        setTimeout(() => {
+          let list = tabCalls.list;
+          if (info && info.url) {
+            const prefix = String(info.url).replace(/\*$/, '');
+            list = list.filter((t) => String(t.url || '').indexOf(prefix) === 0);
+          }
+          cb(list);
+        }, 0);
       },
       onRemoved: { addListener(fn) { tabListeners.removed.push(fn); } },
       onUpdated: { addListener(fn) { tabListeners.updated.push(fn); } }
@@ -2948,6 +2955,393 @@ async function run() {
     assert.strictEqual(settings.defaultCountryCode, '');
     assert.strictEqual(settings.phoneCleanupVersion, 0);
     assert.strictEqual(settings.permitExcludeVersion, 0);
+  });
+
+  console.log('[10] google maps search');
+
+  await test('MAPS_START opens the maps search, sets the source and stops the Instagram run', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [
+      { id: 5, active: false, url: 'https://www.instagram.com/' },
+      { id: 9, active: true, url: 'https://www.google.com/' }
+    ];
+    await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { query: 'nails', target: 3 } });
+    assert.strictEqual(sw.chrome._store.autoSearch.active, true, 'instagram run must be live first');
+
+    const started = await sw.dispatch({
+      type: 'MAPS_START',
+      payload: { queries: ['medspa in dubai', 'laser clinic', 'medspa in dubai'], target: 5 }
+    });
+    assert.strictEqual(started.started, true);
+    assert.strictEqual(started.terms, 2, 'deduped multi-term start');
+    assert.ok(started.searchUrl.indexOf('https://www.google.com/maps/search/?q=medspa%20in%20dubai') === 0,
+      'maps search url: ' + started.searchUrl);
+
+    const state = sw.chrome._store.mapsSearch;
+    assert.strictEqual(state.active, true);
+    assert.strictEqual(state.phase, 'results');
+    assert.deepStrictEqual(state.queries, ['medspa in dubai', 'laser clinic']);
+    assert.strictEqual(state.queryIndex, 0);
+    assert.strictEqual(state.target, 5);
+    assert.strictEqual(state.collected, 0);
+    assert.deepStrictEqual(state.visitedPlaces, []);
+    assert.deepStrictEqual(state.visitedKeys, []);
+    assert.strictEqual(sw.chrome._store.autoSearch.active, false, 'maps start must stop the instagram run');
+    assert.strictEqual(sw.chrome._store.autoSearch.phase, 'stopped');
+
+    const lastUpdate = sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1];
+    assert.strictEqual(lastUpdate.id, 9, 'the open google tab must be reused');
+    assert.ok(lastUpdate.url.indexOf('https://www.google.com/maps/search/?q=medspa%20in%20dubai') === 0,
+      'tab navigated to the maps search: ' + lastUpdate.url);
+
+    const snap = await sw.dispatch({ type: 'GET_SNAPSHOT' });
+    assert.strictEqual(snap.settings.autoSearchSource, 'maps');
+    assert.strictEqual(snap.settings.autoSearchQuery, 'medspa in dubai, laser clinic');
+
+    const blank = await sw.dispatch({ type: 'MAPS_START', payload: { query: '   ' } });
+    assert.strictEqual(blank.started, false);
+    assert.strictEqual(blank.error, 'query_required');
+  });
+
+  await test('MAPS harvest/advance walks place urls and rejects non-maps links', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 9, active: true, url: 'https://www.google.com/' }];
+    await sw.dispatch({ type: 'MAPS_START', payload: { query: 'salon dubai', target: 4 } });
+    const sender = { tab: { id: 9 } };
+
+    const claimed = await sw.dispatch({ type: 'MAPS_CLAIM' }, sender);
+    assert.strictEqual(claimed.granted, true);
+    assert.strictEqual(claimed.state.tabId, 9, 'claim binds the driving tab');
+
+    const wrong = await sw.dispatch({ type: 'MAPS_CLAIM' }, { tab: { id: 5 } });
+    assert.strictEqual(wrong.granted, false, 'another tab must not claim the maps run');
+
+    const h = await sw.dispatch({
+      type: 'MAPS_HARVEST',
+      payload: {
+        places: [
+          'https://www.google.com/maps/place/Spa+One/@25.1,55.2,17z/data=x',
+          'https://www.instagram.com/not-maps/',
+          'https://www.google.com/maps/place/Glow+Med+Spa/',
+          'https://www.google.com/maps/place/Spa+One/@25.1,55.2,17z/data=x'
+        ]
+      }
+    }, sender);
+    assert.strictEqual(h.ok, true);
+    assert.deepStrictEqual(h.pending, [
+      'https://www.google.com/maps/place/Spa+One/@25.1,55.2,17z/data=x',
+      'https://www.google.com/maps/place/Glow+Med+Spa/'
+    ], 'only absolute maps place urls queue, duplicates collapse');
+
+    const a1 = await sw.dispatch({ type: 'MAPS_ADVANCE' }, sender);
+    assert.strictEqual(a1.ok, true);
+    assert.strictEqual(a1.next, 'https://www.google.com/maps/place/Spa+One/@25.1,55.2,17z/data=x');
+    assert.deepStrictEqual(sw.chrome._store.mapsSearch.visitedPlaces,
+      ['https://www.google.com/maps/place/Spa+One/@25.1,55.2,17z/data=x']);
+
+    const h2 = await sw.dispatch({
+      type: 'MAPS_HARVEST',
+      payload: { places: ['https://www.google.com/maps/place/Spa+One/@25.1,55.2,17z/data=x'] }
+    }, sender);
+    assert.deepStrictEqual(h2.pending, ['https://www.google.com/maps/place/Glow+Med+Spa/'],
+      'visited places must not rejoin the queue');
+
+    const a2 = await sw.dispatch({ type: 'MAPS_ADVANCE' }, sender);
+    assert.strictEqual(a2.next, 'https://www.google.com/maps/place/Glow+Med+Spa/');
+    const a3 = await sw.dispatch({ type: 'MAPS_ADVANCE' }, sender);
+    assert.strictEqual(a3.next, null, 'empty queue returns null so the controller goes back to results');
+    assert.ok(a3.searchUrl.indexOf('https://www.google.com/maps/search/?q=salon%20dubai') === 0);
+
+    const badNav = await sw.dispatch({ type: 'MAPS_NAVIGATE', payload: { url: 'https://evil.example/' } }, sender);
+    assert.strictEqual(badNav.ok, false, 'maps navigation must stay on google.com/maps');
+  });
+
+  await test('maps leads: saved without website, stamped with the term, target and term advance', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 9, active: true, url: 'https://www.google.com/' }];
+    await sw.dispatch({ type: 'MAPS_START', payload: { queries: ['medspa dubai', 'laser clinic'], target: 1 } });
+    const sender = { tab: { id: 9 } };
+    await sw.dispatch({ type: 'MAPS_CLAIM' }, sender);
+
+    const saved = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: {
+        profile: {
+          instagram_username: '',
+          maps_key: 'spa-one-abc',
+          instagram_name: 'Spa One',
+          category: 'Beauty salon',
+          phone_raw: '+971 50 123 4567',
+          location: 'Marina Walk, Dubai',
+          website: '',
+          bio: '',
+          source_page: 'https://www.google.com/maps/place/Spa+One/',
+          confidence: 100
+        },
+        confidence: 100,
+        hasWebsite: false,
+        saveAll: true
+      }
+    }, sender);
+    assert.strictEqual(saved.saved, true, JSON.stringify(saved));
+    let lead = sw.chrome._store.leads.find((l) => l.maps_key === 'spa-one-abc');
+    assert.ok(lead, 'maps place must be saved as a lead');
+    assert.strictEqual(lead.instagram_username, '');
+    assert.strictEqual(lead.instagram_url, '');
+    assert.strictEqual(lead.id.indexOf('maps_'), 0, 'maps leads get a maps id');
+    assert.strictEqual(lead.search_term, 'medspa dubai', 'maps lead stamped with the active term');
+    assert.strictEqual(lead.phone_normalized, '+971501234567');
+
+    const withSite = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: {
+        profile: {
+          instagram_username: '',
+          maps_key: 'glow-med-spa',
+          instagram_name: 'Glow Med Spa',
+          website: 'https://glowmed.example',
+          location: 'Dubai',
+          bio: '',
+          confidence: 100
+        },
+        confidence: 100,
+        hasWebsite: true,
+        saveAll: true
+      }
+    }, sender);
+    assert.strictEqual(withSite.saved, false, 'a maps place with a website is not a lead');
+    assert.strictEqual(withSite.reason, 'has_website');
+    assert.ok(!sw.chrome._store.leads.some((l) => l.maps_key === 'glow-med-spa'));
+
+    const p1 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'placeSubmitted', key: 'spa-one-abc' } }, sender);
+    assert.strictEqual(p1.ok, true);
+    assert.strictEqual(p1.collected, 0, 'per-term counter resets on advance');
+    assert.strictEqual(p1.finished, false, 'more terms remain');
+    assert.strictEqual(p1.advanced, true, 'target reached advances to the next term');
+    const mid = sw.chrome._store.mapsSearch;
+    assert.strictEqual(mid.query, 'laser clinic');
+    assert.strictEqual(mid.queryIndex, 1);
+    assert.strictEqual(mid.collected, 0, 'per-term counter resets');
+    assert.strictEqual(mid.totalCollected, 1);
+    assert.ok(mid.searchUrl.indexOf('q=laser%20clinic') !== -1, 'searchUrl moved to the next term: ' + mid.searchUrl);
+
+    const adv = await sw.dispatch({ type: 'MAPS_ADVANCE' }, sender);
+    assert.strictEqual(adv.ok, true);
+    assert.strictEqual(adv.next, null, 'the new term starts with an empty queue');
+    assert.ok(adv.searchUrl.indexOf('q=laser%20clinic') !== -1,
+      'the controller navigates to the next term url: ' + adv.searchUrl);
+
+    const dup = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'placeSubmitted', key: 'spa-one-abc' } }, sender);
+    assert.strictEqual(dup.ok, true);
+    assert.strictEqual(dup.collected, 0, 'the same place must not count twice');
+    assert.strictEqual(dup.finished, false);
+
+    const saved2 = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: {
+        profile: {
+          instagram_username: '',
+          maps_key: 'laser-hub',
+          instagram_name: 'Laser Hub',
+          website: '',
+          location: 'Dubai',
+          bio: '',
+          confidence: 100
+        },
+        confidence: 100,
+        hasWebsite: false,
+        saveAll: true
+      }
+    }, sender);
+    assert.strictEqual(saved2.saved, true, JSON.stringify(saved2));
+    const second = sw.chrome._store.leads.find((l) => l.maps_key === 'laser-hub');
+    assert.strictEqual(second.search_term, 'laser clinic', 'second term stamps its own leads');
+
+    const again = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: {
+        profile: {
+          instagram_username: '',
+          maps_key: 'laser-hub',
+          instagram_name: 'Laser Hub',
+          website: '',
+          location: 'Dubai',
+          bio: '',
+          confidence: 100
+        },
+        confidence: 100,
+        hasWebsite: false,
+        saveAll: true
+      }
+    }, sender);
+    assert.strictEqual(again.saved, false, 'a place resubmitted later must merge, not duplicate');
+    assert.strictEqual(again.reason, 'duplicate');
+    assert.strictEqual(sw.chrome._store.leads.filter((l) => l.maps_key === 'laser-hub').length, 1);
+
+    const p3 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'placeSubmitted', key: 'laser-hub' } }, sender);
+    assert.strictEqual(p3.finished, true, 'last term reached its target');
+    const done = sw.chrome._store.mapsSearch;
+    assert.strictEqual(done.active, false);
+    assert.strictEqual(done.phase, 'done');
+    assert.strictEqual(done.totalCollected, 2);
+
+    await sw.dispatch({ type: 'MAPS_START', payload: { queries: ['facials', 'brows'], target: 3 } });
+    const ex1 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex1.ok, true);
+    assert.strictEqual(ex1.advanced, true, 'exhausted results advance to the next term');
+    assert.strictEqual(sw.chrome._store.mapsSearch.query, 'brows');
+    const lastNav = sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1];
+    assert.ok(lastNav.url.indexOf('q=brows') !== -1, 'tab moved to the next term: ' + lastNav.url);
+
+    const ex2 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex2.advanced, false, 'the last term exhausts the run');
+    assert.strictEqual(sw.chrome._store.mapsSearch.phase, 'exhausted');
+    assert.strictEqual(sw.chrome._store.mapsSearch.active, false);
+  });
+
+  await test('maps-search controller: classify, harvest places and extract the place panel', async () => {
+    const html = `<!DOCTYPE html><html><head><title>Google Maps</title></head><body>
+      <div role="feed">
+        <a href="/maps/place/Spa+One/">Spa One</a>
+        <a href="/maps/place/Glow+Med+Spa/?hl=en">Glow Med Spa</a>
+        <a href="/maps/place/Spa+One/">Spa One again</a>
+        <a href="https://www.instagram.com/someone/">not a place</a>
+      </div>
+    </body></html>`;
+    const d = new JSDOM(html, {
+      url: 'https://www.google.com/maps/search/?q=medspa+in+dubai',
+      pretendToBeVisual: true,
+      runScripts: 'outside-only'
+    });
+    const win = d.window;
+
+    const sent = [];
+    const store = {
+      mapsSearch: {
+        active: true, query: 'medspa in dubai', queries: ['medspa in dubai'], queryIndex: 0,
+        target: 2, collected: 0, totalCollected: 0, phase: 'idle', message: '',
+        tabId: 7, searchUrl: 'https://www.google.com/maps/search/?q=medspa%20in%20dubai',
+        visitedPlaces: [], visitedKeys: [], pending: [], updatedAt: 0
+      },
+      settings: { saveEmail: true, savePhone: true }
+    };
+    const changeListeners = [];
+    win.chrome = {
+      storage: {
+        local: {
+          get(keys, cb) {
+            const out = {};
+            (Array.isArray(keys) ? keys : [keys]).forEach((k) => { if (k in store) out[k] = store[k]; });
+            setTimeout(() => cb(out), 0);
+          },
+          set(items, cb) {
+            Object.assign(store, items);
+            setTimeout(() => {
+              const changes = {};
+              Object.keys(items).forEach((k) => { changes[k] = { newValue: items[k] }; });
+              changeListeners.forEach((fn) => fn(changes, 'local'));
+              if (cb) cb();
+            }, 0);
+          }
+        },
+        onChanged: { addListener(fn) { changeListeners.push(fn); } }
+      },
+      runtime: {
+        lastError: null,
+        sendMessage(message, cb) {
+          sent.push(message);
+          let resp = null;
+          if (message.type === 'MAPS_CLAIM') resp = { granted: true, state: store.mapsSearch };
+          else if (message.type === 'PROCESS_CANDIDATE') resp = { saved: true, reason: 'saved' };
+          else if (message.type === 'MAPS_PROGRESS' && message.payload.type === 'placeSubmitted') {
+            resp = { ok: true, collected: 1, target: 2, finished: false };
+          }           else if (message.type === 'MAPS_HARVEST') {
+            store.mapsSearch.pending = message.payload.places.slice();
+            resp = { ok: true, pending: store.mapsSearch.pending };
+          } else if (message.type === 'MAPS_ADVANCE') {
+            const next = (store.mapsSearch.pending || []).shift() || null;
+            if (next) store.mapsSearch.visitedPlaces.push(next);
+            resp = { ok: true, next: next, searchUrl: store.mapsSearch.searchUrl };
+          } else resp = { ok: true };
+          setTimeout(() => cb && cb(resp), 0);
+        },
+        onMessage: { addListener() {} }
+      }
+    };
+
+    const files = [
+      'src/shared/logger.js',
+      'src/content/normalizer.js',
+      'src/content/maps-search.js'
+    ];
+    files.forEach((rel) => win.eval(fs.readFileSync(path.join(root, rel), 'utf8')));
+
+    const MS = win.FicinoMapsSearch;
+    assert.ok(MS, 'maps search namespace missing');
+
+    assert.strictEqual(MS.classifyPage('/maps/search/'), 'results');
+    assert.strictEqual(MS.classifyPage('/maps/search/?q=x'), 'results');
+    assert.strictEqual(MS.classifyPage('/maps/place/Spa+One/'), 'place');
+    assert.strictEqual(MS.classifyPage('/maps/'), 'other');
+
+    const places = MS.collectPlaceUrls(win.document);
+    assert.deepStrictEqual(Array.from(places), [
+      'https://www.google.com/maps/place/Spa+One/',
+      'https://www.google.com/maps/place/Glow+Med+Spa/?hl=en'
+    ], 'relative hrefs resolve to absolute place urls, no port, no hash');
+
+    const placeDoc = new JSDOM(`<!DOCTYPE html><html><body>
+      <h1>Spa One</h1>
+      <div>Beauty salon</div>
+      <button data-item-id="address">Marina Walk, Dubai</button>
+      <a href="tel:+971501234567">+971 50 123 4567</a>
+      <a data-value="Website" href="https://spaone.example/services/">Website</a>
+    </body></html>`, {
+      url: 'https://www.google.com/maps/place/Spa+One/@25.1,55.2,17z',
+      pretendToBeVisual: true,
+      runScripts: 'outside-only'
+    });
+    const place = MS.extractPlace(placeDoc.window.document);
+    assert.strictEqual(place.name, 'Spa One');
+    assert.strictEqual(place.category, 'Beauty salon', 'category falls back to the line under the title');
+    assert.strictEqual(place.address, 'Marina Walk, Dubai');
+    assert.strictEqual(place.phone, '+971 50 123 4567');
+    assert.ok(place.website.indexOf('spaone.example') !== -1, 'website: ' + place.website);
+
+    const googleSiteDoc = new JSDOM(`<!DOCTYPE html><html><body>
+      <h1>Hidden Site</h1>
+      <div>Spa</div>
+      <button data-item-id="address">Dubai</button>
+      <a data-value="Website" href="https://www.google.com/url?q=https://x.example/">Website</a>
+    </body></html>`, { url: 'https://www.google.com/maps/place/Hidden+Site/', runScripts: 'outside-only' });
+    assert.strictEqual(MS.extractPlace(googleSiteDoc.window.document).website, '',
+      'google redirect links must not count as the business website');
+
+    assert.strictEqual(MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'),
+      MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'), 'key is stable');
+    assert.notStrictEqual(MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'),
+      MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One+2/'), 'key separates places');
+
+    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(sent.find((m) => m.type === 'MAPS_CLAIM'), 'controller must claim the run');
+    assert.ok(MS.ctl.timer, 'loop must be scheduled with a random delay');
+    for (let i = 0; i < 5; i++) {
+      const delay = MS.cycleDelay();
+      assert.ok(delay >= 2000 && delay <= 4000, 'cycle delay must be random 2-4s, got ' + delay);
+    }
+
+    MS.tick();
+    await new Promise((r) => setTimeout(r, 400));
+
+    const harvest = sent.find((m) => m.type === 'MAPS_HARVEST');
+    assert.ok(harvest, 'results page must harvest place links: ' + JSON.stringify(sent.map((m) => m.type)));
+    assert.strictEqual(harvest.payload.places.length, 2, 'fresh places only');
+    const nav = sent.find((m) => m.type === 'MAPS_NAVIGATE');
+    assert.ok(nav, 'controller must open the first queued place');
+    assert.ok(nav.payload.url.indexOf('https://www.google.com/maps/place/') === 0,
+      'navigation stays on google maps: ' + nav.payload.url);
+
+    win.close();
   });
 
   console.log('');

@@ -35,6 +35,11 @@
   <section class="card">
     <h2 class="card-title">Auto Search</h2>
 
+    <div class="source-switch" role="group" aria-label="Search source">
+      <button type="button" class="source-btn active" id="srcInstagram">Instagram</button>
+      <button type="button" class="source-btn" id="srcMaps">Google Maps</button>
+    </div>
+
     <label class="field">
       <span class="field-label">Search terms — one per line (or comma-separated)</span>
       <textarea id="autoQuery" rows="3" placeholder="e.g. salon london&#10;nail bar&#10;brow studio" maxlength="500"></textarea>

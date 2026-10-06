@@ -36,6 +36,7 @@
     if (!key) return -1;
     for (var i = 0; i < leads.length; i++) {
       if (normalizeKey(leads[i].instagram_username) === key) return i;
+      if (leads[i].maps_key && normalizeKey(leads[i].maps_key) === key) return i;
     }
     return -1;
   }
@@ -211,21 +212,23 @@
     var hasWebsite = !!(payload && payload.hasWebsite);
     var saveAll = !!(payload && payload.saveAll);
 
-    if (!profile || !profile.instagram_username) {
+    if (!profile || (!profile.instagram_username && !profile.maps_key)) {
       return Promise.resolve({ saved: false, reason: 'invalid_candidate' });
     }
 
     queueStat('scanned', 1);
 
-    var username = normalizeKey(profile.instagram_username);
+    var username = normalizeKey(profile.instagram_username || profile.maps_key);
 
-    return Promise.all([Storage.getSettings(), Storage.getAutoSearch()]).then(function (parts) {
+    return Promise.all([Storage.getSettings(), Storage.getAutoSearch(), Storage.getMapsSearch()]).then(function (parts) {
       var settings = parts[0];
       var autoState = parts[1];
-      var term = searchTermFor(autoState, sender);
+      var mapsState = parts[2];
+      var term = searchTermFor(autoState, sender) || searchTermFor(mapsState, sender);
       if (term) profile = Object.assign({}, profile, { search_term: term });
       var postContacts = (autoState && autoState.postContacts) || {};
-      var contact = autoState && autoState.postContacts ? autoState.postContacts[username] : null;
+      var contact = profile.instagram_username && autoState && autoState.postContacts
+        ? autoState.postContacts[username] : null;
       if (contact) {
         var merged = null;
         if (!profile.phone_normalized && contact.phone_normalized) {
@@ -258,7 +261,7 @@
       if (hasWebsite || profile.website) {
         queueStat('withWebsite', 1);
         return mutateLeads(function (leads) {
-          var index = findLeadIndex(leads, profile.instagram_username);
+          var index = findLeadIndex(leads, profile.instagram_username || profile.maps_key);
           if (index >= 0) {
             leads[index] = verifyLead(mergeLead(leads[index], profile), settings, postContacts);
             return Storage.setLeads(leads).then(function () {
@@ -272,7 +275,7 @@
         queueStat('withoutWebsite', 1);
 
         return mutateLeads(function (leads) {
-          var index = findLeadIndex(leads, profile.instagram_username);
+          var index = findLeadIndex(leads, profile.instagram_username || profile.maps_key);
           if (index >= 0) {
             queueStat('duplicates', 1);
             leads[index] = verifyLead(mergeLead(leads[index], profile), settings, postContacts);
@@ -288,14 +291,14 @@
             }
           }
           return Storage.setLeads(leads).then(function () {
-            if (Log && Log.isEnabled()) Log.debug('Storage', 'Duplicate merged:', profile.instagram_username);
+            if (Log && Log.isEnabled()) Log.debug('Storage', 'Duplicate merged:', username);
             return { saved: false, reason: 'duplicate', updated: true };
           });
         }
 
         var lead = Object.assign({}, profile, {
-          id: 'ig_' + username + '_' + Date.now().toString(36),
-          instagram_username: String(profile.instagram_username).replace(/^@/, ''),
+          id: (profile.maps_key ? 'maps_' : 'ig_') + username + '_' + Date.now().toString(36),
+          instagram_username: String(profile.instagram_username || '').replace(/^@/, ''),
           instagram_url: N.normalizeProfileUrl(profile.instagram_username),
           date_found: N.normalizeDate(new Date()),
           status: exclude ? 'Ignore' : (profile.status || 'New'),
@@ -314,7 +317,7 @@
         queueStat('saved', 1);
 
         return Storage.setLeads(leads).then(function () {
-          if (Log && Log.isEnabled()) Log.debug('Storage', 'Lead saved:', lead.instagram_username);
+          if (Log && Log.isEnabled()) Log.debug('Storage', 'Lead saved:', username);
           return { saved: true, reason: 'saved', id: lead.id };
         });
       });
@@ -621,6 +624,21 @@
     return out;
   }
 
+  function stopOtherSearch(kind) {
+    if (kind === 'maps') {
+      return Storage.getMapsSearch().then(function (s) {
+        return s.active
+          ? Storage.setMapsSearch({ active: false, phase: 'stopped', message: 'Stopped — Instagram search started' })
+          : null;
+      });
+    }
+    return Storage.getAutoSearch().then(function (s) {
+      return s.active
+        ? Storage.setAutoSearch({ active: false, phase: 'stopped', message: 'Stopped — Google Maps search started', hold: null })
+        : null;
+    });
+  }
+
   function autoSearchStart(payload) {
     var terms = parseTerms(payload && (payload.queries || payload.query))
       .filter(function (term) { return !!searchUrlFor(term); });
@@ -634,7 +652,13 @@
     if (!url) return Promise.resolve({ started: false, error: 'query_required' });
 
     return findOrCreateInstagramTab(url).then(function (tabId) {
-      return Storage.saveSettings({ autoSearchQuery: terms.join(', '), autoSearchTarget: target }).then(function () {
+      return Storage.saveSettings({
+        autoSearchQuery: terms.join(', '),
+        autoSearchTarget: target,
+        autoSearchSource: 'instagram'
+      }).then(function () {
+        return stopOtherSearch('maps');
+      }).then(function () {
         return Storage.setAutoSearch({
           active: true,
           phase: 'harvest',
@@ -771,10 +795,10 @@
     };
   }
 
-  function bumpCollected(state, rawUsername) {
+  function bumpCollected(state, rawUsername, write, visitedField, nextPatch) {
     var username = normalizeKey(rawUsername);
     if (!username) return Promise.resolve(null);
-    var visited = state.visitedProfiles.slice();
+    var visited = (state[visitedField] || []).slice();
     var isNewVisit = visited.indexOf(username) === -1;
     if (isNewVisit) {
       if (visited.length > 4000) visited = visited.slice(-4000);
@@ -788,12 +812,12 @@
       collected += added;
       var total = (Number(state.totalCollected) || 0) + added;
       var reached = collected >= state.target;
-      var advance = reached ? nextTermPatch(state) : null;
+      var advance = reached ? nextPatch(state) : null;
       var patch = {
         collected: collected,
-        visitedProfiles: visited,
         totalCollected: total
       };
+      patch[visitedField] = visited;
       if (advance) {
         patch = Object.assign(patch, advance);
         patch.message = advance.message;
@@ -806,7 +830,7 @@
             : ('Collected ' + state.target + ' leads'))
           : state.message;
       }
-      return Storage.setAutoSearch(patch).then(function (next) {
+      return write(patch).then(function (next) {
         if (Log && Log.isEnabled()) {
           Log.debug('AutoSearch', username + (qualifies ? ' lead' : ' skip') + ' ' + next.collected + '/' + state.target);
         }
@@ -1035,7 +1059,7 @@
           saveAll: true
         });
       }).then(function () {
-        return bumpCollected(state, profile.instagram_username);
+        return bumpCollected(state, profile.instagram_username, Storage.setAutoSearch, 'visitedProfiles', nextTermPatch);
       }).then(function (bump) {
         if (!bump) return { ok: false, reason: 'progress_error' };
         if (bump.finished) return { ok: true, finished: true, collected: bump.collected, target: state.target };
@@ -1068,7 +1092,7 @@
       if (type === 'profileSubmitted') {
         var username = normalizeKey(payload.username);
         if (!username) return { ok: false, reason: 'no_username' };
-        return bumpCollected(state, username).then(function (bump) {
+        return bumpCollected(state, username, Storage.setAutoSearch, 'visitedProfiles', nextTermPatch).then(function (bump) {
           if (!bump) return { ok: false, reason: 'no_username' };
           return {
             ok: true,
@@ -1137,6 +1161,246 @@
     });
   }
 
+  function mapsUrlFor(query) {
+    var q = String(query || '').trim();
+    return q ? 'https://www.google.com/maps/search/?q=' + encodeURIComponent(q) : '';
+  }
+
+  function normalizeMapsPlaceUrl(raw) {
+    var url = String(raw || '').split('#')[0];
+    if (url.indexOf('https://www.google.com/maps/place/') !== 0) return '';
+    return url;
+  }
+
+  function findOrCreateMapsTab(url) {
+    return new Promise(function (resolve) {
+      if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) {
+        resolve(null);
+        return;
+      }
+      chrome.tabs.query({ url: 'https://www.google.com/*' }, function (tabs) {
+        var pick = null;
+        for (var i = 0; i < (tabs || []).length; i++) {
+          if (tabs[i].active) { pick = tabs[i]; break; }
+        }
+        if (!pick && tabs && tabs.length) pick = tabs[0];
+        if (pick) {
+          chrome.tabs.update(pick.id, { url: url }, function () { resolve(pick.id); });
+        } else if (chrome.tabs.create) {
+          chrome.tabs.create({ url: url, active: true }, function (tab) {
+            resolve(tab && typeof tab.id === 'number' ? tab.id : null);
+          });
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  function searchGuard(read, write, sender) {
+    return read().then(function (state) {
+      var tabId = senderTabId(sender);
+      if (!state.active) return { ok: false, state: state, reason: 'inactive' };
+      if (state.tabId == null) {
+        if (tabId == null) return { ok: false, state: state, reason: 'no_tab' };
+        return write({ tabId: tabId }).then(function (next) {
+          return { ok: true, state: next };
+        });
+      }
+      if (tabId != null && tabId !== state.tabId) return { ok: false, state: state, reason: 'wrong_tab' };
+      if (tabId == null) return { ok: false, state: state, reason: 'no_tab' };
+      return { ok: true, state: state };
+    });
+  }
+
+  function mapsSearchGuard(sender) {
+    return searchGuard(Storage.getMapsSearch, Storage.setMapsSearch, sender);
+  }
+
+  function mapsSearchStart(payload) {
+    var terms = parseTerms(payload && (payload.queries || payload.query))
+      .filter(function (term) { return !!mapsUrlFor(term); });
+    if (!terms.length) return Promise.resolve({ started: false, error: 'query_required' });
+    var target = parseInt(payload && payload.target, 10);
+    if (!isFinite(target)) target = 30;
+    if (target < 1) target = 1;
+    if (target > 500) target = 500;
+    var url = mapsUrlFor(terms[0]);
+
+    return findOrCreateMapsTab(url).then(function (tabId) {
+      return Storage.saveSettings({
+        autoSearchQuery: terms.join(', '),
+        autoSearchTarget: target,
+        autoSearchSource: 'maps'
+      }).then(function () {
+        return stopOtherSearch('instagram');
+      }).then(function () {
+        return Storage.setMapsSearch({
+          active: true,
+          phase: 'results',
+          query: terms[0],
+          queries: terms,
+          queryIndex: 0,
+          totalCollected: 0,
+          target: target,
+          collected: 0,
+          message: terms.length > 1 ? ('Term 1/' + terms.length + ': ' + terms[0]) : 'Starting…',
+          tabId: tabId,
+          searchUrl: url,
+          visitedPlaces: [],
+          visitedKeys: [],
+          pending: []
+        });
+      }).then(function (state) {
+        if (Log && Log.isEnabled()) {
+          Log.debug('MapsSearch', 'started ' + terms.length + ' term(s) "' + terms[0] + '" target ' + target);
+        }
+        return { started: true, tabId: state.tabId, searchUrl: url, terms: terms.length };
+      });
+    });
+  }
+
+  function mapsSearchStop() {
+    return Storage.setMapsSearch({ active: false, phase: 'stopped', message: 'Stopped by user' })
+      .then(function () { return { stopped: true }; });
+  }
+
+  function mapsSearchClaim(sender) {
+    return mapsSearchGuard(sender).then(function (g) {
+      return { granted: g.ok, state: g.state, reason: g.reason };
+    });
+  }
+
+  function mapsSearchNavigate(payload, sender) {
+    var url = String(payload && payload.url || '');
+    if (url.indexOf('https://www.google.com/maps/') !== 0) {
+      return Promise.resolve({ ok: false, reason: 'bad_url' });
+    }
+    return mapsSearchGuard(sender).then(function (g) {
+      if (!g.ok) return { ok: false, reason: g.reason };
+      return tabsUpdate(g.state.tabId, url);
+    });
+  }
+
+  function mapsSearchHarvest(payload, sender) {
+    return mapsSearchGuard(sender).then(function (g) {
+      if (!g.ok) return { ok: false, reason: g.reason };
+      var places = payload && Array.isArray(payload.places) ? payload.places : [];
+      var pending = g.state.pending.slice();
+      var visited = g.state.visitedPlaces.slice();
+      places.forEach(function (raw) {
+        var url = normalizeMapsPlaceUrl(raw);
+        if (!url) return;
+        if (visited.indexOf(url) !== -1) return;
+        if (pending.indexOf(url) !== -1) return;
+        if (pending.length >= 300) return;
+        pending.push(url);
+      });
+      if (pending.length === g.state.pending.length) {
+        return { ok: true, pending: pending, collected: g.state.collected, target: g.state.target };
+      }
+      return Storage.setMapsSearch({ pending: pending }).then(function (next) {
+        if (Log && Log.isEnabled()) Log.debug('MapsSearch', 'harvested, queue ' + next.pending.length);
+        return { ok: true, pending: next.pending, collected: next.collected, target: next.target };
+      });
+    });
+  }
+
+  function mapsSearchAdvance(sender) {
+    return mapsSearchGuard(sender).then(function (g) {
+      if (!g.ok) return { ok: false, next: null, reason: g.reason };
+      var pending = g.state.pending.slice();
+      var visited = g.state.visitedPlaces.slice();
+      var next = pending.length ? pending.shift() : null;
+      if (next && visited.indexOf(next) === -1) {
+        visited.push(next);
+        if (visited.length > 4000) visited = visited.slice(-4000);
+      }
+      return Storage.setMapsSearch({ pending: pending, visitedPlaces: visited }).then(function () {
+        if (Log && Log.isEnabled()) Log.debug('MapsSearch', 'advance -> ' + (next || 'results'));
+        return { ok: true, next: next, searchUrl: g.state.searchUrl, active: true };
+      });
+    });
+  }
+
+  function nextMapsTermPatch(state) {
+    var queries = termQueries(state);
+    var index = Number(state.queryIndex) || 0;
+    if (index + 1 >= queries.length) return null;
+    var nextTerm = queries[index + 1];
+    return {
+      queryIndex: index + 1,
+      query: nextTerm,
+      searchUrl: mapsUrlFor(nextTerm),
+      collected: 0,
+      pending: [],
+      active: true,
+      phase: 'results',
+      message: 'Term ' + (index + 2) + '/' + queries.length + ': ' + nextTerm
+    };
+  }
+
+  function mapsSearchProgress(payload, sender) {
+    var type = payload && payload.type;
+    return mapsSearchGuard(sender).then(function (g) {
+      if (!g.ok) return { ok: false, reason: g.reason };
+      var state = g.state;
+
+      if (type === 'phase') {
+        var phase = String(payload.phase || '');
+        if (!phase || phase === state.phase) return { ok: true, collected: state.collected, finished: false };
+        return Storage.setMapsSearch({ phase: phase, message: '' }).then(function (next) {
+          return { ok: true, collected: next.collected, finished: false };
+        });
+      }
+
+      if (type === 'placeSubmitted') {
+        var key = normalizeKey(payload.key);
+        if (!key) return { ok: false, reason: 'no_key' };
+        return bumpCollected(state, key, Storage.setMapsSearch, 'visitedKeys', nextMapsTermPatch).then(function (bump) {
+          if (!bump) return { ok: false, reason: 'no_key' };
+          return {
+            ok: true,
+            collected: bump.collected,
+            target: state.target,
+            finished: bump.finished,
+            advanced: bump.advanced,
+            totalCollected: bump.totalCollected
+          };
+        });
+      }
+
+      if (type === 'blocked') {
+        return Storage.setMapsSearch({
+          active: false,
+          phase: 'blocked',
+          message: String(payload.message || 'Google Maps is blocked — open the tab and check')
+        }).then(function () { return { ok: true, finished: false }; });
+      }
+
+      if (type === 'exhausted') {
+        var advance = nextMapsTermPatch(state);
+        if (!advance) {
+          return Storage.setMapsSearch({
+            active: false,
+            phase: 'exhausted',
+            message: String(payload.message || 'No more results')
+          }).then(function () { return { ok: true, finished: false, advanced: false }; });
+        }
+        return Storage.setMapsSearch(advance).then(function (next) {
+          if (Log && Log.isEnabled()) {
+            Log.debug('MapsSearch', 'term exhausted, moving to "' + next.query + '"');
+          }
+          return tabsUpdate(state.tabId, next.searchUrl).then(function (nav) {
+            return { ok: true, finished: false, advanced: true, collected: 0, navigated: nav.ok !== false };
+          });
+        });
+      }
+
+      return Promise.resolve({ ok: false, reason: 'unknown_type' });
+    });
+  }
+
   chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     if (!message || typeof message.type !== 'string') return false;
 
@@ -1190,6 +1454,27 @@
         break;
       case 'AUTOSEARCH_PROGRESS':
         handled = autoSearchProgress(message.payload, sender);
+        break;
+      case 'MAPS_START':
+        handled = mapsSearchStart(message.payload);
+        break;
+      case 'MAPS_STOP':
+        handled = mapsSearchStop();
+        break;
+      case 'MAPS_CLAIM':
+        handled = mapsSearchClaim(sender);
+        break;
+      case 'MAPS_NAVIGATE':
+        handled = mapsSearchNavigate(message.payload, sender);
+        break;
+      case 'MAPS_HARVEST':
+        handled = mapsSearchHarvest(message.payload, sender);
+        break;
+      case 'MAPS_ADVANCE':
+        handled = mapsSearchAdvance(sender);
+        break;
+      case 'MAPS_PROGRESS':
+        handled = mapsSearchProgress(message.payload, sender);
         break;
       case 'POST_CONTACT_STASH':
         handled = stashPostContact(message.payload);
