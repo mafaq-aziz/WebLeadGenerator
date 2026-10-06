@@ -827,6 +827,9 @@ async function run() {
                 if (items.settings) {
                   changeListeners.forEach((fn) => fn({ settings: { newValue: items.settings } }, 'local'));
                 }
+                if (items.mapsSearch) {
+                  changeListeners.forEach((fn) => fn({ mapsSearch: { newValue: items.mapsSearch } }, 'local'));
+                }
                 if (cb) cb();
               }, 0);
             }
@@ -895,6 +898,20 @@ async function run() {
       });
       await new Promise((r) => setTimeout(r, 100));
       assert.strictEqual(scanner.isScanningEnabled(), true, 'resuming should re-enable scanning');
+
+      await new Promise((resolve) => {
+        win.chrome.storage.local.set({ mapsSearch: { active: true } }, resolve);
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      assert.strictEqual(scanner.isScanningEnabled(), false,
+        'a running google maps search must pause the passive scanner');
+
+      await new Promise((resolve) => {
+        win.chrome.storage.local.set({ mapsSearch: { active: false } }, resolve);
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      assert.strictEqual(scanner.isScanningEnabled(), true,
+        'ending the maps search must resume the scanner');
 
       win.close();
     });
@@ -3197,6 +3214,66 @@ async function run() {
     assert.strictEqual(ex2.advanced, false, 'the last term exhausts the run');
     assert.strictEqual(sw.chrome._store.mapsSearch.phase, 'exhausted');
     assert.strictEqual(sw.chrome._store.mapsSearch.active, false);
+  });
+
+  await test('maps: later runs and a stale tab still stamp the search term', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 9, active: true, url: 'https://www.google.com/' }];
+    const sender = { tab: { id: 9 } };
+
+    await sw.dispatch({ type: 'MAPS_START', payload: { query: 'spa in dubai', target: 1 } });
+    await sw.dispatch({ type: 'MAPS_CLAIM' }, sender);
+    const first = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: {
+        profile: {
+          instagram_username: '', maps_key: 'spa-one', instagram_name: 'Spa One',
+          website: '', location: 'Dubai', bio: '', confidence: 100
+        },
+        confidence: 100, hasWebsite: false, saveAll: true
+      }
+    }, sender);
+    assert.strictEqual(first.saved, true, JSON.stringify(first));
+    assert.strictEqual(sw.chrome._store.leads.find((l) => l.maps_key === 'spa-one').search_term, 'spa in dubai');
+    const done1 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'placeSubmitted', key: 'spa-one' } }, sender);
+    assert.strictEqual(done1.finished, true, 'target 1 finishes the first run');
+    assert.strictEqual(sw.chrome._store.mapsSearch.active, false);
+
+    const second = await sw.dispatch({ type: 'MAPS_START', payload: { query: 'laser clinic', target: 1 } });
+    assert.strictEqual(second.started, true, JSON.stringify(second));
+    assert.strictEqual(sw.chrome._store.mapsSearch.active, true, 'the restarted run must be live');
+    assert.deepStrictEqual(sw.chrome._store.mapsSearch.queries, ['laser clinic']);
+    assert.strictEqual(sw.chrome._store.mapsSearch.queryIndex, 0);
+    assert.deepStrictEqual(sw.chrome._store.mapsSearch.visitedKeys, [], 'restart clears the walk state');
+    await sw.dispatch({ type: 'MAPS_CLAIM' }, sender);
+    const secondLead = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: {
+        profile: {
+          instagram_username: '', maps_key: 'laser-hub', instagram_name: 'Laser Hub',
+          website: '', location: 'Dubai', bio: '', confidence: 100
+        },
+        confidence: 100, hasWebsite: false, saveAll: true
+      }
+    }, sender);
+    assert.strictEqual(secondLead.saved, true, JSON.stringify(secondLead));
+    assert.strictEqual(sw.chrome._store.leads.find((l) => l.maps_key === 'laser-hub').search_term, 'laser clinic',
+      'a later run must stamp its own term, not drop it');
+
+    const stale = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: {
+        profile: {
+          instagram_username: '', maps_key: 'body-lounge', instagram_name: 'Body Lounge',
+          website: '', location: 'Dubai', bio: '', confidence: 100
+        },
+        confidence: 100, hasWebsite: false, saveAll: true,
+        searchTerm: 'body lounge dubai'
+      }
+    }, { tab: { id: 55 } });
+    assert.strictEqual(stale.saved, true, JSON.stringify(stale));
+    assert.strictEqual(sw.chrome._store.leads.find((l) => l.maps_key === 'body-lounge').search_term, 'body lounge dubai',
+      'a tab that no longer owns the run still stamps the term it carries');
   });
 
   await test('maps-search controller: classify, harvest places and extract the place panel', async () => {

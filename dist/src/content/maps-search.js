@@ -7,7 +7,7 @@
   var MIN_CYCLE_MS = 2000;
   var MAX_CYCLE_MS = 4000;
   var PLACE_WAIT_TICKS = 8;
-  var STAGNATION_TICKS = 4;
+  var STAGNATION_TICKS = 8;
   var OTHER_PAGE_LIMIT = 5;
 
   var mirror = {
@@ -221,13 +221,19 @@
 
   function scrollResults() {
     try {
-      var feed = root.document.querySelector('div[role="feed"]') ||
-        root.document.querySelector('[role="main"]');
-      if (feed && feed.scrollHeight > feed.clientHeight + 50) {
-        feed.scrollTop = feed.scrollHeight;
-        return;
+      var d = root.document;
+      var start = d.querySelector('div[role="feed"]') || d.querySelector('[role="main"]') || d.body;
+      var node = start;
+      var depth = 0;
+      while (node && node.nodeType === 1 && depth < 8) {
+        if (node.scrollHeight > node.clientHeight + 50) {
+          node.scrollTop = node.scrollHeight;
+          return;
+        }
+        node = node.parentElement;
+        depth++;
       }
-      var docEl = root.document.documentElement;
+      var docEl = d.documentElement;
       if (!docEl || docEl.scrollHeight <= (root.innerHeight || 800)) return;
       var step = Math.max(500, Math.round((root.innerHeight || 800) * 0.85));
       root.scrollBy(0, step);
@@ -364,7 +370,8 @@
         profile: profile,
         confidence: 100,
         hasWebsite: !!profile.website,
-        saveAll: true
+        saveAll: true,
+        searchTerm: mirror.query || ''
       }
     }).then(function () {
       return sendMessage({ type: 'MAPS_PROGRESS', payload: { type: 'placeSubmitted', key: profile.maps_key } });

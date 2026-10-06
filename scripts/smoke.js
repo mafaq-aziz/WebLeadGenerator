@@ -163,12 +163,35 @@ const WA_PAGE = `<!DOCTYPE html>
 <body><main><h1>WhatsApp Web</h1></main></body></html>`;
 
 const MAPS_RESULTS = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>spa in dubai - Google Maps</title></head>
-<body><div role="feed">
+<html lang="en"><head><meta charset="utf-8"><title>spa in dubai - Google Maps</title>
+<style>
+  #feed { height: 200px; overflow: auto; }
+  #feed a { display: block; padding: 10px; }
+</style></head>
+<body><div id="feed" role="feed">
   <a href="/maps/place/Spa+One/@25.2000000,55.3000000,17z/data=!3m1!1b3">Spa One</a>
   <a href="/maps/place/Glow+Med+Spa/@25.2100000,55.3100000,17z/data=!3m1!1b3">Glow Med Spa</a>
   <a href="/maps/place/Body+Lounge/@25.2200000,55.3200000,17z/data=!3m1!1b3">Body Lounge</a>
-</div></body></html>`;
+  <a href="/maps/place/Place+Four/@25.2300000,55.3300000,17z/data=x">Place Four</a>
+  <a href="/maps/place/Place+Five/@25.2400000,55.3400000,17z/data=x">Place Five</a>
+  <a href="/maps/place/Place+Six/@25.2500000,55.3500000,17z/data=x">Place Six</a>
+  <a href="/maps/place/Place+Seven/@25.2600000,55.3600000,17z/data=x">Place Seven</a>
+  <a href="/maps/place/Place+Eight/@25.2700000,55.3700000,17z/data=x">Place Eight</a>
+</div>
+<script>
+  var batch2 = false;
+  document.getElementById('feed').addEventListener('scroll', function () {
+    var f = this;
+    if (batch2 || f.scrollTop + f.clientHeight < f.scrollHeight - 40) return;
+    batch2 = true;
+    var html = '';
+    ['Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen'].forEach(function (n, i) {
+      html += '<a href="/maps/place/Place+' + n + '/@25.' + (40 + i) + '00000,55.' + (40 + i) + '00000,17z/data=x">Place ' + n + '</a>';
+    });
+    f.insertAdjacentHTML('beforeend', html);
+  });
+</script>
+</body></html>`;
 
 const MAPS_SPA = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Spa One - Google Maps</title></head>
@@ -206,8 +229,11 @@ function routeFixture(host, url) {
       if (/^\/maps\/place\/Glow\+Med\+Spa/.test(url)) return MAPS_GLOW;
       if (/^\/maps\/place\/Body\+Lounge/.test(url)) return MAPS_BODY;
       if (/^\/maps\/place\/Spa\+One/.test(url)) return MAPS_SPA;
-      console.log('  smoke: unknown maps place path ' + url);
-      return MAPS_RESULTS;
+      var m = url.match(/^\/maps\/place\/([^/@?]+)/);
+      var name = decodeURIComponent(String((m && m[1]) || 'Place').replace(/\+/g, ' '));
+      return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>' + name +
+        ' - Google Maps</title></head><body><main><h1>' + name + '</h1><span>Spa</span>' +
+        '<div data-item-id="address">Dubai</div></main></body></html>';
     }
     fixtureHits.mapsResults++;
     return MAPS_RESULTS;
@@ -728,10 +754,10 @@ async function main() {
     console.log('  merged 2 leads into @a1_shop (search term "' + mergedLead.search_term + '", notes: "' +
       mergedLead.notes.slice(0, 60) + '")');
 
-    console.log('  starting Google Maps search "spa in dubai" (target 2)...');
+    console.log('  starting Google Maps search "spa in dubai" (target 12, scroll pagination)...');
     const mapsStart = JSON.parse(await fromDashboard(
       'new Promise(function (resolve) {' +
-      ' chrome.runtime.sendMessage({ type: "MAPS_START", payload: { queries: ["spa in dubai"], target: 2 } },' +
+      ' chrome.runtime.sendMessage({ type: "MAPS_START", payload: { queries: ["spa in dubai"], target: 12 } },' +
       ' function (r) { resolve(JSON.stringify(r || null)); }); })'
     ));
     if (!mapsStart || !mapsStart.started) {
@@ -748,10 +774,10 @@ async function main() {
       const s = data.mapsSearch || {};
       if (s.active || s.phase === 'idle') return null;
       return data;
-    }, 180000, 1000);
+    }, 240000, 1000);
 
     const mrun = mapsFinal.mapsSearch || {};
-    if (mrun.phase !== 'done' || (mrun.totalCollected || 0) !== 2) {
+    if (mrun.phase !== 'done' || (mrun.totalCollected || 0) !== 12) {
       throw new Error('maps search did not finish at target: ' + JSON.stringify(mrun));
     }
     const mleads = mapsFinal.leads || [];
@@ -798,12 +824,14 @@ async function main() {
       throw new Error('source switch must be persisted, got: ' + JSON.stringify((mapsFinal.settings || {}).autoSearchSource));
     }
     if (fixtureHits.mapsResults < 1) throw new Error('maps results page was never opened');
-    if (fixtureHits.mapsPlaces < 3) {
-      throw new Error('all three places must be opened, got ' + fixtureHits.mapsPlaces);
+    if (fixtureHits.mapsPlaces < 12) {
+      throw new Error('scroll pagination must open at least 12 place pages (batch1 holds 8), got ' +
+        fixtureHits.mapsPlaces);
     }
-    console.log('  maps run done: ' + spaLead.instagram_name + ' and ' + bodyLead.instagram_name +
-      ' saved (phones ' + spaLead.phone_normalized + ', ' + bodyLead.phone_normalized +
-      '), website place excluded, withWebsite=' + mstats.withWebsite);
+    console.log('  maps run done: 12 no-website places saved after the results feed scrolled a second batch in' +
+      ' (place pages opened: ' + fixtureHits.mapsPlaces + '),' +
+      ' phones ' + spaLead.phone_normalized + ', ' + bodyLead.phone_normalized +
+      ', website place excluded, withWebsite=' + mstats.withWebsite);
 
     console.log('SMOKE PASS: passive scan saved a lead, auto-search collected to target,' +
       ' IG message sent automatically, WhatsApp draft prefilled without sending, leads merged,' +

@@ -20,6 +20,7 @@
       scannerActive: true
     },
     autoSearchActive: false,
+    mapsSearchActive: false,
     postContacts: Object.create(null),
     processed: Object.create(null),
     observer: null,
@@ -55,13 +56,16 @@
           resolve();
           return;
         }
-        chrome.storage.local.get([SETTINGS_KEY, 'autoSearch'], function (items) {
+        chrome.storage.local.get([SETTINGS_KEY, 'autoSearch', 'mapsSearch'], function (items) {
           if (items && items[SETTINGS_KEY]) {
             Object.assign(state.settings, items[SETTINGS_KEY]);
           }
           if (items && items.autoSearch) {
             state.autoSearchActive = !!items.autoSearch.active;
             state.postContacts = items.autoSearch.postContacts || Object.create(null);
+          }
+          if (items && items.mapsSearch) {
+            state.mapsSearchActive = !!items.mapsSearch.active;
           }
           if (Log) Log.setEnabled(!!state.settings.debug);
           resolve();
@@ -84,6 +88,10 @@
           if (nextAuto.postContacts) state.postContacts = nextAuto.postContacts;
           applyActiveState();
         }
+        if (changes.mapsSearch) {
+          state.mapsSearchActive = !!((changes.mapsSearch.newValue || {}).active);
+          applyActiveState();
+        }
         if (!changes[SETTINGS_KEY]) return;
         Object.assign(state.settings, changes[SETTINGS_KEY].newValue || {});
         if (Log) Log.setEnabled(!!state.settings.debug);
@@ -96,7 +104,7 @@
   }
 
   function isScanningEnabled() {
-    if (state.autoSearchActive) return false;
+    if (state.autoSearchActive || state.mapsSearchActive) return false;
     return state.settings.scannerActive !== false && state.settings.autoScan !== false;
   }
 

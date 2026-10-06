@@ -224,7 +224,10 @@
       var settings = parts[0];
       var autoState = parts[1];
       var mapsState = parts[2];
-      var term = searchTermFor(autoState, sender) || searchTermFor(mapsState, sender);
+      var payloadTerm = String(payload.searchTerm || '').trim().slice(0, 120);
+      var term = profile.maps_key
+        ? (searchTermFor(mapsState, sender) || payloadTerm)
+        : (searchTermFor(autoState, sender) || searchTermFor(mapsState, sender) || payloadTerm);
       if (term) profile = Object.assign({}, profile, { search_term: term });
       var postContacts = (autoState && autoState.postContacts) || {};
       var contact = profile.instagram_username && autoState && autoState.postContacts
@@ -1234,6 +1237,12 @@
         autoSearchSource: 'maps'
       }).then(function () {
         return stopOtherSearch('instagram');
+      }).then(function () {
+        return Storage.getMapsSearch().then(function (prev) {
+          return prev.active
+            ? Storage.setMapsSearch({ active: false, phase: 'stopped', message: 'Restarting…' })
+            : null;
+        });
       }).then(function () {
         return Storage.setMapsSearch({
           active: true,

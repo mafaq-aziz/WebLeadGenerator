@@ -257,8 +257,9 @@ displays, so every saved phone is verified:
    opened, not the influencer's. If that author was already visited, the post is
    skipped entirely; the influencer account is never opened.
 
-While an Auto Search run is active the passive scanner pauses so each profile is
-submitted exactly once.
+While an Auto Search or Google Maps run is active the passive scanner pauses so
+each profile is submitted exactly once and every lead keeps the run's search term
+(passive finds without an active run land under *No search term* by design).
 
 ### Google Maps search mode
 
@@ -269,8 +270,9 @@ submitted exactly once.
 3. Press **Start Search**. The extension opens
    `google.com/maps/search/?q=…` in a tab it drives exactly like Auto Search —
    same random 2–4 second pacing: it harvests every `/maps/place/…` link from the
-   results, auto-scrolls, opens each place page one at a time, and reads the place
-   panel (name, category, address, `tel:` phone, website).
+   results, **scrolls the results feed to load more results (infinite scroll, not
+   just the first screenful)**, opens each place page one at a time, and reads the
+   place panel (name, category, address, `tel:`/`data-item-id` phone, website).
 4. **Only places with no website are saved** — places that list a website are
    opened and counted in statistics (*With website*) but skipped, exactly like the
    Instagram rule. Saved leads get a `maps_key` identity (no fake @username), the
@@ -348,7 +350,7 @@ driven tab and start the search again.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 93 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 94 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -398,15 +400,17 @@ npm run smoke    # real headless Chrome end-to-end test
     asserts the merge reports 2 merged into the first-selected id, the lead list
     shrinks by exactly one, the merged-away lead is gone, and the survivor keeps
     the unioned `search_term`.
-10. Sends `MAPS_START` for `spa in dubai` (target 2) and asserts the Google Maps
-    run opened the results fixture, visited all three place pages
-    (server-side hit counter), **saved the two places without a website**
-    (Spa One/Body Lounge — `maps_key`, place URL as `source_page`, address as
-    `location`, phones `+971501234567`/`+971507778888`, `search_term` stamped,
+10. Sends `MAPS_START` for `spa in dubai` (target 12) and asserts the Google Maps
+    run opened the results fixture — an **8-link results feed that appends 8 more
+    links only when scrolled**, so the run can only reach 12 by scrolling the feed
+    (proves the infinite-scroll pagination) — visited at least 12 place pages
+    (server-side hit counter), **saved the places without a website** (`maps_key`,
+    place URL as `source_page`, address as `location`, phones
+    `+971501234567`/`+971507778888` on the named fixtures, `search_term` stamped,
     empty username/url), **excluded the place that lists a website**
     (Glow Med Spa, counted in `statistics.withWebsite >= 1`), persisted the source
     switch (`settings.autoSearchSource === 'maps'`), and finished at target
-    (`mapsSearch.phase === 'done'`, `totalCollected === 2`).
+    (`mapsSearch.phase === 'done'`, `totalCollected === 12`).
 
 ## Architecture
 
@@ -472,7 +476,7 @@ src/
                                    panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-tests/                            93-test suite
+ tests/                            94-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to
