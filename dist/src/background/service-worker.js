@@ -516,6 +516,49 @@
     return 'https://www.instagram.com/explore/search/keyword/?q=' + encodeURIComponent(q);
   }
 
+  var TAG_STOPWORDS = {
+    in: 1, on: 1, at: 1, near: 1, for: 1, the: 1, of: 1, to: 1, and: 1, or: 1,
+    my: 1, me: 1, by: 1, with: 1, into: 1, around: 1, vs: 1, top: 1, best: 1,
+    how: 1, what: 1, where: 1, who: 1, when: 1, your: 1, our: 1, this: 1, that: 1
+  };
+
+  function tagCandidates(query) {
+    var q = String(query || '').trim().toLowerCase();
+    if (!q || q.charAt(0) === '#') return [];
+    var words = q.split(/[^a-z0-9_À-ɏ؀-ۿ]+/).filter(Boolean);
+    var out = [];
+    for (var i = 0; i < words.length; i++) {
+      var word = words[i];
+      if (word.length < 3 || TAG_STOPWORDS[word]) continue;
+      if (out.indexOf(word) === -1) out.push(word);
+      if (word.length > 4 && word.charAt(word.length - 1) === 's') {
+        var singular = word.slice(0, -1);
+        if (out.indexOf(singular) === -1) out.push(singular);
+      }
+      if (out.length >= 2) break;
+    }
+    return out;
+  }
+
+  function surfacesFor(query) {
+    var surfaces = [];
+    var keyword = searchUrlFor(query);
+    if (keyword) surfaces.push(keyword);
+    tagCandidates(query).forEach(function (tag) {
+      var url = 'https://www.instagram.com/explore/tags/' + encodeURIComponent(tag) + '/';
+      if (surfaces.indexOf(url) === -1) surfaces.push(url);
+    });
+    return surfaces;
+  }
+
+  function surfaceLabel(url) {
+    var match = /\/explore\/tags\/([^/]+)\/?$/.exec(String(url || ''));
+    if (match) {
+      try { return '#' + decodeURIComponent(match[1]); } catch (err) { return '#tag'; }
+    }
+    return 'the next results page';
+  }
+
   function findOrCreateInstagramTab(url) {
     return new Promise(function (resolve) {
       if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) {
@@ -579,13 +622,15 @@
   }
 
   function autoSearchStart(payload) {
-    var terms = parseTerms(payload && (payload.queries || payload.query));
+    var terms = parseTerms(payload && (payload.queries || payload.query))
+      .filter(function (term) { return !!searchUrlFor(term); });
     if (!terms.length) return Promise.resolve({ started: false, error: 'query_required' });
     var target = parseInt(payload && payload.target, 10);
     if (!isFinite(target)) target = 30;
     if (target < 1) target = 1;
     if (target > 500) target = 500;
-    var url = searchUrlFor(terms[0]);
+    var surfaces = surfacesFor(terms[0]);
+    var url = surfaces.length ? surfaces[0] : '';
     if (!url) return Promise.resolve({ started: false, error: 'query_required' });
 
     return findOrCreateInstagramTab(url).then(function (tabId) {
@@ -597,6 +642,9 @@
           queries: terms,
           queryIndex: 0,
           totalCollected: 0,
+          surfaces: surfaces,
+          surfaceIndex: 0,
+          searchHarvested: 0,
           target: target,
           collected: 0,
           message: terms.length > 1 ? ('Term 1/' + terms.length + ': ' + terms[0]) : 'Starting…',
@@ -609,7 +657,8 @@
         });
       }).then(function (state) {
         if (Log && Log.isEnabled()) {
-          Log.debug('AutoSearch', 'started ' + terms.length + ' term(s) "' + terms[0] + '" target ' + target);
+          Log.debug('AutoSearch', 'started ' + terms.length + ' term(s) "' + terms[0] +
+            '" target ' + target + ', ' + surfaces.length + ' surface(s)');
         }
         return { started: true, tabId: state.tabId, searchUrl: url, terms: terms.length };
       });
@@ -669,7 +718,11 @@
       if (pending.length === g.state.pending.length) {
         return { ok: true, pending: pending, collected: g.state.collected, target: g.state.target };
       }
-      return Storage.setAutoSearch({ pending: pending }).then(function (next) {
+      var added = pending.length - g.state.pending.length;
+      return Storage.setAutoSearch({
+        pending: pending,
+        searchHarvested: (Number(g.state.searchHarvested) || 0) + added
+      }).then(function (next) {
         if (Log && Log.isEnabled()) Log.debug('AutoSearch', 'harvested, queue ' + next.pending.length);
         return { ok: true, pending: next.pending, collected: next.collected, target: next.target };
       });
@@ -707,6 +760,9 @@
       queryIndex: index + 1,
       query: nextTerm,
       searchUrl: searchUrlFor(nextTerm),
+      surfaces: surfacesFor(nextTerm),
+      surfaceIndex: 0,
+      searchHarvested: 0,
       collected: 0,
       pending: [],
       active: true,
@@ -1034,6 +1090,31 @@
       }
 
       if (type === 'exhausted') {
+        var surfaces = state.surfaces || [];
+        var surfaceIndex = Number(state.surfaceIndex) || 0;
+        var harvested = Number(state.searchHarvested) || 0;
+        if (!harvested && surfaceIndex + 1 < surfaces.length) {
+          var nextSurface = surfaces[surfaceIndex + 1];
+          var surfacePatch = {
+            surfaceIndex: surfaceIndex + 1,
+            searchUrl: nextSurface,
+            searchHarvested: 0,
+            active: true,
+            phase: 'harvest',
+            message: 'No posts there — trying ' + surfaceLabel(nextSurface)
+          };
+          return Storage.setAutoSearch(surfacePatch).then(function (next) {
+            if (Log && Log.isEnabled()) {
+              Log.debug('AutoSearch', 'empty surface, falling back to ' + next.searchUrl);
+            }
+            return tabsUpdate(state.tabId, next.searchUrl).then(function (nav) {
+              return {
+                ok: true, finished: false, advanced: true, fallback: true,
+                collected: 0, navigated: nav.ok !== false
+              };
+            });
+          });
+        }
         var advance = nextTermPatch(state);
         if (!advance) {
           return Storage.setAutoSearch({

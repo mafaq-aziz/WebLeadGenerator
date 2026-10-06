@@ -13,6 +13,8 @@ Two modes plus a draft-based outreach workflow:
   caption for a phone/email, jumps to the author's profile, extracts everything visible,
   goes back to the queue, and stops after a configurable number of **leads (profiles
   with no website) per term**, then automatically continues with the next term.
+  An empty keyword results page is retried as hashtags derived from the term
+  (`medspas in uae` → `#medspas`, `#medspa`) before the term gives up.
   Every lead is stamped with the **search term that found it**, so results from
   different terms stay separate (filterable and exportable). **No business verification
   is applied in this mode** — every
@@ -212,28 +214,35 @@ displays, so every saved phone is verified:
    When a term hits its target (or its results run out), the run **automatically
    continues with the next term**; press **Stop Search** at any time. The run also
    stops itself at a login wall, or when the last term is done.
-5. **Terms stay separate**: every saved lead carries a `search_term` field with the
+5. **Empty keyword pages fall back to hashtags**: Instagram's keyword results
+   sometimes come back with no posts at all (the same search works again later).
+   When a term's keyword page is empty *and no post was ever seen under that
+   term*, the run tries hashtags derived from the term instead of giving up —
+   `medspas in uae` → `#medspas` → `#medspa` → next term — and the status
+   names the surface (`No posts there — trying #medspas`). A term that has
+   harvested posts is never re-tried, so a working keyword page always wins.
+6. **Terms stay separate**: every saved lead carries a `search_term` field with the
    term(s) that found it (a lead found again under another term accumulates both).
    The dashboard's **Search term** dropdown filters by term with per-term counts, each
    row shows the term as a badge, the term is included in the search box and exported
    as a **Search Term** column, and passive leads (found outside a run) fall under
    *No search term*.
-6. Every visited profile is extracted — the confidence threshold is bypassed — but
+7. Every visited profile is extracted — the confidence threshold is bypassed — but
    **only profiles that end up saved as leads (no website) count toward the target**.
    Profiles that display a website are still visited and counted in statistics
    (*With website*) but do not advance the counter.
-7. **Linktree resolution**: if the only link in the bio is a Linktree
+8. **Linktree resolution**: if the only link in the bio is a Linktree
    (`linktr.ee/…`), the run opens the Linktree page in the driven tab and checks its
    links. A real website found there excludes the profile (counted under *With
    website*, does not count toward the target); no website found means the profile is
    saved as a lead and counts. WhatsApp / social links on the Linktree are ignored, so
    they can never fake a website.
-8. **Caption contacts**: phone numbers and emails found in a post's caption are stashed
+9. **Caption contacts**: phone numbers and emails found in a post's caption are stashed
    under the post's author and merged into the profile when it is extracted — so a
    brand that hides its number in posts still ends up with `phone_normalized`/`email`
    on the saved lead (when the save-phone/save-email settings allow it). Caption-sourced
    numbers are flagged `caption_source` for review (see *Phone number verification*).
-9. **Collab posts**: a post co-authored by an influencer and a brand lists both
+10. **Collab posts**: a post co-authored by an influencer and a brand lists both
    accounts. The run ranks every author (business keywords in the handle, search-term
    matches; name-like handles and blogger markers such as `blog`/`daily`/`vlogs` are
    deprioritized) and opens only the best-ranked one — so the brand's profile is
@@ -295,7 +304,7 @@ submitted exactly once.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 87 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 89 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -326,7 +335,9 @@ npm run smoke    # real headless Chrome end-to-end test
    lead as `phone_normalized`/`email`), **opened and resolved its Linktree**
     (server-side hit counter), submitted it with `saveAll`, saved the `a1_shop` lead
     with an empty `website`, stamped it with the session's **search term**
-    (`search_term === 'skin clinic'`), and stopped itself at the target
+    (`search_term === 'skin clinic'`), counted the harvested post links
+    (`autoSearch.searchHarvested > 0`, proving a populated keyword page never
+    triggers the hashtag fallback), and stopped itself at the target
     (`autoSearch.phase === 'done'`, `collected >= 2`, counting only saved leads).
 7. Opens the dashboard over CDP and runs the phone verification flow: `CLEAN_PHONES`
    flags the caption-sourced number as `caption_source`, then `SET_PHONE` accepts the
@@ -377,7 +388,9 @@ src/
                                   real website link (or none) back to the SW
   background/service-worker.js    single writer for leads/statistics; auto-search queue
                                   (multi-term: sequential per-term runs with automatic
-                                  advance, search-term stamping on saved leads),
+                                  advance, keyword→hashtag surface fallback when a
+                                  search page comes up empty, search-term stamping on
+                                  saved leads),
                                   tab driving (claim/navigate/advance), Linktree
                                   hold/resolve handlers, post-contact stash, influencer
                                   flagging, the target counter (counts only saved,
@@ -397,7 +410,7 @@ src/
                                   panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-tests/                            87-test suite
+tests/                            89-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to
@@ -430,6 +443,11 @@ statistics consistent under concurrent page activity.
   personal profile with business keywords may be counted.
 - Heavy automated browsing can trigger Instagram rate limits or login challenges; the
   run stops itself with a "Login required" status when that happens.
+- Instagram's keyword search occasionally serves **no posts at all** (for the search
+  box too, typically clearing up after a while). Auto Search detects the empty term
+  and retries it as derived hashtags before moving on, but if Instagram empties
+  hashtag pages as well, there is nothing the extension can scrape that session —
+  check Instagram for a "Try Again Later" / restriction notice and rerun later.
 - Export contains whatever was stored locally; deleting the extension or clearing
   site data removes the leads.
 - Influencer detection is a conservative heuristic: it deliberately misses ambiguous

@@ -1143,8 +1143,22 @@ async function run() {
     assert.strictEqual(sw.chrome._store.autoSearch.phase, 'blocked');
 
     await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { query: 'nails', target: 4 } });
-    const ex = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
-    assert.strictEqual(ex.ok, true);
+    const ex1 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex1.ok, true);
+    assert.strictEqual(ex1.fallback, true, 'empty keyword page falls back to hashtags');
+    assert.strictEqual(sw.chrome._store.autoSearch.active, true);
+    assert.strictEqual(sw.chrome._store.autoSearch.surfaceIndex, 1);
+    assert.ok(sw.chrome._store.autoSearch.searchUrl.indexOf('/explore/tags/nails/') !== -1,
+      'first hashtag fallback: ' + sw.chrome._store.autoSearch.searchUrl);
+
+    const ex2 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex2.fallback, true, 'singular hashtag is the last surface');
+    assert.strictEqual(sw.chrome._store.autoSearch.active, true);
+    assert.ok(sw.chrome._store.autoSearch.searchUrl.indexOf('/explore/tags/nail/') !== -1,
+      'singular hashtag fallback: ' + sw.chrome._store.autoSearch.searchUrl);
+
+    const ex3 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex3.advanced, false, 'all surfaces and terms exhausted -> stop');
     assert.strictEqual(sw.chrome._store.autoSearch.phase, 'exhausted');
     assert.strictEqual(sw.chrome._store.autoSearch.active, false);
   });
@@ -1166,6 +1180,9 @@ async function run() {
     assert.strictEqual(state.query, 'hair salon');
     assert.strictEqual(state.queryIndex, 0);
     assert.strictEqual(state.totalCollected, 0);
+    assert.strictEqual(state.surfaces.length, 3, 'keyword + two tag surfaces stored at start');
+    assert.strictEqual(state.surfaceIndex, 0);
+    assert.strictEqual(state.searchHarvested, 0);
 
     const snap = await sw.dispatch({ type: 'GET_SNAPSHOT' });
     assert.strictEqual(snap.settings.autoSearchQuery, 'hair salon, nail bar, brow studio');
@@ -1226,6 +1243,7 @@ async function run() {
     sw.chrome._tabCalls.list = [{ id: 5, active: true, url: 'https://www.instagram.com/' }];
     await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { queries: ['spa', 'yoga'], target: 5 } });
     const sender = { tab: { id: 5 } };
+    sw.chrome._store.autoSearch.searchHarvested = 9;
     const baseline = sw.chrome._tabCalls.updated.length;
 
     const ex = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
@@ -1238,10 +1256,70 @@ async function run() {
     assert.strictEqual(sw.chrome._tabCalls.updated.length, baseline + 1, 'tab navigated to the next search');
     assert.ok(sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1].url.indexOf('q=yoga') !== -1);
 
+    sw.chrome._store.autoSearch.searchHarvested = 4;
     const ex2 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
     assert.strictEqual(ex2.advanced, false, 'the last term exhausts the run');
     assert.strictEqual(sw.chrome._store.autoSearch.active, false);
     assert.strictEqual(sw.chrome._store.autoSearch.phase, 'exhausted');
+  });
+
+  await test('empty keyword search falls back through hashtag surfaces', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 5, active: true, url: 'https://www.instagram.com/' }];
+
+    const started = await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { query: 'medspas in uae', target: 8 } });
+    assert.strictEqual(started.started, true);
+
+    const state = sw.chrome._store.autoSearch;
+    assert.deepStrictEqual(state.surfaces, [
+      'https://www.instagram.com/explore/search/keyword/?q=medspas%20in%20uae',
+      'https://www.instagram.com/explore/tags/medspas/',
+      'https://www.instagram.com/explore/tags/medspa/'
+    ], 'keyword URL first, then derived tags');
+    assert.strictEqual(state.surfaceIndex, 0);
+    assert.strictEqual(state.searchHarvested, 0);
+    assert.strictEqual(state.searchUrl, state.surfaces[0]);
+
+    const sender = { tab: { id: 5 } };
+    const baseline = sw.chrome._tabCalls.updated.length;
+
+    const ex1 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex1.fallback, true);
+    assert.strictEqual(ex1.finished, false);
+    assert.strictEqual(sw.chrome._store.autoSearch.active, true, 'fallback keeps the run alive');
+    assert.strictEqual(sw.chrome._store.autoSearch.surfaceIndex, 1);
+    assert.ok(sw.chrome._store.autoSearch.searchUrl.indexOf('/explore/tags/medspas/') !== -1);
+    assert.ok(sw.chrome._store.autoSearch.message.indexOf('#medspas') !== -1,
+      'message names the fallback surface: ' + sw.chrome._store.autoSearch.message);
+    assert.strictEqual(sw.chrome._tabCalls.updated.length, baseline + 1, 'tab navigated to the hashtag page');
+    assert.ok(sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1].url.indexOf('/explore/tags/medspas/') !== -1);
+
+    const ex2 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex2.fallback, true, 'singular tag is the final rung');
+    assert.strictEqual(sw.chrome._store.autoSearch.surfaceIndex, 2);
+    assert.ok(sw.chrome._store.autoSearch.searchUrl.indexOf('/explore/tags/medspa/') !== -1);
+
+    const ex3 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex3.advanced, false, 'every surface and the only term are used up');
+    assert.strictEqual(sw.chrome._store.autoSearch.active, false);
+  });
+
+  await test('harvested posts skip the hashtag fallback for that term', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 5, active: true, url: 'https://www.instagram.com/' }];
+    await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { query: 'facials', target: 5 } });
+    const sender = { tab: { id: 5 } };
+    const baseline = sw.chrome._tabCalls.updated.length;
+
+    const h = await sw.dispatch({ type: 'AUTOSEARCH_HARVEST', payload: { posts: ['/p/X/', '/p/Y/'] } }, sender);
+    assert.strictEqual(h.ok, true);
+    assert.strictEqual(sw.chrome._store.autoSearch.searchHarvested, 2, 'harvest counts seen posts');
+
+    const ex = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex.advanced, false, 'posts were seen, so the term ends instead of falling back');
+    assert.strictEqual(sw.chrome._store.autoSearch.phase, 'exhausted');
+    assert.strictEqual(sw.chrome._store.autoSearch.surfaceIndex, 0, 'no fallback surface was entered');
+    assert.strictEqual(sw.chrome._tabCalls.updated.length, baseline, 'no hashtag navigation happened');
   });
 
   await test('leads are stamped with the search term of the active session tab', async () => {

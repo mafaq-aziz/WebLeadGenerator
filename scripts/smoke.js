@@ -387,7 +387,7 @@ async function main() {
 
     console.log('  injecting auto search session (target 2 leads)...');
     await cdp.send('Runtime.evaluate', {
-      expression: 'chrome.storage.local.set({ autoSearch: { active: true, query: "skin clinic", target: 2, collected: 0, phase: "idle", message: "", tabId: null, searchUrl: "https://www.instagram.com/explore/search/keyword/?q=skin%20clinic", visitedPosts: [], visitedProfiles: [], pending: [], updatedAt: Date.now() } })',
+      expression: 'chrome.storage.local.set({ autoSearch: { active: true, query: "skin clinic", queries: ["skin clinic"], queryIndex: 0, totalCollected: 0, target: 2, collected: 0, phase: "idle", message: "", tabId: null, searchUrl: "https://www.instagram.com/explore/search/keyword/?q=skin%20clinic", surfaces: ["https://www.instagram.com/explore/search/keyword/?q=skin%20clinic", "https://www.instagram.com/explore/tags/skin/", "https://www.instagram.com/explore/tags/clinic/"], surfaceIndex: 0, searchHarvested: 0, visitedPosts: [], visitedProfiles: [], pending: [], updatedAt: Date.now() } })',
       awaitPromise: true,
       returnByValue: true
     }, swSession);
@@ -409,6 +409,13 @@ async function main() {
     if (run.phase !== 'done' || (run.collected || 0) < 2) {
       throw new Error('auto search did not complete: ' + JSON.stringify(run));
     }
+    if (!(run.searchHarvested > 0)) {
+      throw new Error('harvested post links must be counted, searchHarvested: ' + JSON.stringify(run.searchHarvested));
+    }
+    if (run.surfaceIndex !== 0) {
+      throw new Error('posts were seen on the keyword page, so no hashtag fallback may trigger: ' + JSON.stringify(run.surfaceIndex));
+    }
+    console.log('  search page harvested ' + run.searchHarvested + ' post link(s), no hashtag fallback needed');
     if (fixtureHits.linktree < 1) {
       throw new Error('linktree page was never opened by auto search');
     }
