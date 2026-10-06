@@ -289,8 +289,19 @@
     if (phoneLink) {
       phone = text(phoneLink) || String(phoneLink.getAttribute('href') || '').replace(/^tel:/i, '');
     }
+    if (!phone) {
+      var phoneEl = d.querySelector('[data-item-id^="phone:"]');
+      if (phoneEl) {
+        phone = text(phoneEl) ||
+          String(phoneEl.getAttribute('data-item-id') || '').replace(/^phone:/i, '');
+      }
+    }
     var website = '';
-    var websiteLink = d.querySelector('a[data-value="Website"]') || d.querySelector('a[aria-label="Website"]');
+    var websiteLink = d.querySelector('a[data-item-id="authority"]') ||
+      d.querySelector('a[data-item-id^="website"]') ||
+      d.querySelector('a[data-value="Website"]') ||
+      d.querySelector('a[aria-label="Website"]') ||
+      d.querySelector('a[jsaction*=".website"]');
     if (websiteLink) {
       website = N.normalizeExternalUrl(websiteLink.getAttribute('href') || '');
       var domain = N.domainOf(websiteLink.getAttribute('href') || '');

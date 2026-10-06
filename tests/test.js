@@ -3317,6 +3317,29 @@ async function run() {
     assert.strictEqual(MS.extractPlace(googleSiteDoc.window.document).website, '',
       'google redirect links must not count as the business website');
 
+    const realDoc = new JSDOM(`<!DOCTYPE html><html><body>
+      <h1>Laser Lounge</h1>
+      <span>Clinic</span>
+      <button data-item-id="address"><div>Business Bay, Dubai</div></button>
+      <button data-item-id="phone:+97141234567" jsaction="pane.wfvdle121.phone"><div>+971 4 123 4567</div></button>
+      <a data-item-id="authority" jsaction="pane.wfvdle153.website" href="https://laserlounge.example/">laserlounge.example</a>
+    </body></html>`, { url: 'https://www.google.com/maps/place/Laser+Lounge/', runScripts: 'outside-only' });
+    const real = MS.extractPlace(realDoc.window.document);
+    assert.strictEqual(real.name, 'Laser Lounge');
+    assert.strictEqual(real.category, 'Clinic');
+    assert.strictEqual(real.address, 'Business Bay, Dubai', 'real address button');
+    assert.strictEqual(real.phone, '+971 4 123 4567', 'real maps phone is a data-item-id button, not a tel: link');
+    assert.ok(real.website.indexOf('laserlounge.example') !== -1,
+      'real maps website is an authority link: ' + real.website);
+
+    const attrDoc = new JSDOM(`<!DOCTYPE html><html><body>
+      <h1>Hidden Phone</h1>
+      <span>Spa</span>
+      <button data-item-id="phone:+971507778888" jsaction="pane.wfvdle121.phone"></button>
+    </body></html>`, { url: 'https://www.google.com/maps/place/Hidden+Phone/', runScripts: 'outside-only' });
+    assert.strictEqual(MS.extractPlace(attrDoc.window.document).phone, '+971507778888',
+      'empty phone button falls back to the data-item-id value');
+
     assert.strictEqual(MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'),
       MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'), 'key is stable');
     assert.notStrictEqual(MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'),

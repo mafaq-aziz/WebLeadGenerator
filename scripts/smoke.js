@@ -175,8 +175,8 @@ const MAPS_SPA = `<!DOCTYPE html>
 <body><main>
   <h1>Spa One</h1>
   <span>Beauty salon</span>
-  <div data-item-id="address">Marina Walk, Dubai</div>
-  <a href="tel:+971501234567">+971 50 123 4567</a>
+  <button data-item-id="address"><div>Marina Walk, Dubai</div></button>
+  <button data-item-id="phone:+971501234567" jsaction="pane.wfvdle121.phone"><div>+971 50 123 4567</div></button>
 </main></body></html>`;
 
 const MAPS_GLOW = `<!DOCTYPE html>
@@ -185,7 +185,7 @@ const MAPS_GLOW = `<!DOCTYPE html>
   <h1>Glow Med Spa</h1>
   <span>Medical spa</span>
   <div data-item-id="address">Jumeirah Beach, Dubai</div>
-  <a data-item-id="authority" data-value="Website" href="https://glowmedspa.example/">Website</a>
+  <a data-item-id="authority" jsaction="pane.wfvdle153.website" href="https://glowmedspa.example/">glowmedspa.example</a>
 </main></body></html>`;
 
 const MAPS_BODY = `<!DOCTYPE html>
