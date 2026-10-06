@@ -430,6 +430,10 @@ async function main() {
     if (autoLead.email !== 'a1@shop.example') {
       throw new Error('email from the post caption must merge into the auto lead, got: ' + autoLead.email);
     }
+    if (autoLead.search_term !== 'skin clinic') {
+      throw new Error('auto-search lead must carry its search term, got: ' + JSON.stringify(autoLead.search_term));
+    }
+    console.log('  auto-search lead stamped with its search term: "' + autoLead.search_term + '"');
     if (!run.postContacts || !run.postContacts.a1_shop) {
       throw new Error('post contact for a1_shop was never stashed: ' + JSON.stringify(run.postContacts || null));
     }
@@ -629,8 +633,47 @@ async function main() {
     }
     console.log('  WhatsApp draft tab opened with prefilled message, not sent: ' + waDecoded.slice(0, 80) + '...');
 
+    console.log('  merging the auto-search lead with the profile lead...');
+    const beforeMerge = await cdp.send('Runtime.evaluate', {
+      expression: 'chrome.storage.local.get(["leads"])',
+      awaitPromise: true,
+      returnByValue: true
+    }, swSession);
+    const mergeLeads = (beforeMerge.result.value || {}).leads || [];
+    const mergeA1 = mergeLeads.find((l) => l.instagram_username === 'a1_shop');
+    const mergeClinic = mergeLeads.find((l) => l.instagram_username === 'e2e_clinic');
+    if (!mergeA1 || !mergeClinic) throw new Error('merge candidates missing: ' +
+      JSON.stringify(mergeLeads.map((l) => l.instagram_username)));
+    const mergeRes = JSON.parse(await fromDashboard(
+      'new Promise(function (resolve) {' +
+      ' chrome.runtime.sendMessage({ type: "MERGE_LEADS", payload: { ids: ["' + mergeA1.id + '", "' + mergeClinic.id + '"] } },' +
+      ' function (r) { resolve(JSON.stringify(r || null)); }); })'
+    ));
+    if (!mergeRes || !mergeRes.ok) throw new Error('merge failed: ' + JSON.stringify(mergeRes));
+    if (mergeRes.merged !== 2 || mergeRes.id !== mergeA1.id) {
+      throw new Error('unexpected merge result: ' + JSON.stringify(mergeRes));
+    }
+    const afterMerge = await cdp.send('Runtime.evaluate', {
+      expression: 'chrome.storage.local.get(["leads"])',
+      awaitPromise: true,
+      returnByValue: true
+    }, swSession);
+    const mergedList = (afterMerge.result.value || {}).leads || [];
+    if (mergedList.length !== mergeLeads.length - 1) {
+      throw new Error('merge must remove one lead, went from ' + mergeLeads.length + ' to ' + mergedList.length);
+    }
+    const mergedLead = mergedList.find((l) => l.id === mergeA1.id);
+    if (!mergedLead || mergedLead.search_term !== 'skin clinic') {
+      throw new Error('merged lead must keep the search term, got: ' + JSON.stringify(mergedLead && mergedLead.search_term));
+    }
+    if (mergedList.some((l) => l.instagram_username === 'e2e_clinic')) {
+      throw new Error('merged-away lead must be removed');
+    }
+    console.log('  merged 2 leads into @a1_shop (search term "' + mergedLead.search_term + '", notes: "' +
+      mergedLead.notes.slice(0, 60) + '")');
+
     console.log('SMOKE PASS: passive scan saved a lead, auto-search collected to target,' +
-      ' IG message sent automatically, WhatsApp draft prefilled without sending');
+      ' IG message sent automatically, WhatsApp draft prefilled without sending, leads merged');
   } catch (err) {
     fail(err.message);
     const exited = await Promise.race([

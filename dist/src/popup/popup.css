@@ -200,6 +200,25 @@ input[type="text"]:focus, input[type="number"]:focus {
   border-color: var(--accent);
 }
 
+textarea#autoQuery {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 7px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+textarea#autoQuery:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .progress {
   height: 7px;
   background: var(--card-2);

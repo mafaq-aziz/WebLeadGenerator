@@ -79,8 +79,45 @@
       merged.reasons = incoming.reasons || existing.reasons || [];
     }
     merged.instagram_url = N.normalizeProfileUrl(merged.instagram_username) || merged.instagram_url;
+    if (incoming.search_term) {
+      merged.search_term = unionTerms(existing.search_term, incoming.search_term);
+    }
     merged.last_seen = N.normalizeDate(new Date());
     return merged;
+  }
+
+  function splitTerms(value) {
+    return String(value || '').split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+  }
+
+  function unionTerms(a, b) {
+    var out = [];
+    var seen = Object.create(null);
+    splitTerms(a).concat(splitTerms(b)).forEach(function (term) {
+      var key = term.toLowerCase();
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push(term);
+    });
+    return out.join(', ');
+  }
+
+  function currentSearchTerm(autoState) {
+    if (!autoState || !autoState.active) return '';
+    var queries = autoState.queries && autoState.queries.length
+      ? autoState.queries
+      : (autoState.query ? [autoState.query] : []);
+    if (!queries.length) return '';
+    var index = Number(autoState.queryIndex) || 0;
+    return queries[index] || queries[0] || '';
+  }
+
+  function searchTermFor(autoState, sender) {
+    var term = currentSearchTerm(autoState);
+    if (!term) return '';
+    var tab = senderTabId(sender);
+    if (tab != null && autoState.tabId != null && tab !== autoState.tabId) return '';
+    return term;
   }
 
   function phoneContext(lead) {
@@ -168,7 +205,7 @@
     return lead;
   }
 
-  function processCandidate(payload) {
+  function processCandidate(payload, sender) {
     var profile = payload && payload.profile ? payload.profile : null;
     var confidence = payload && typeof payload.confidence === 'number' ? payload.confidence : 0;
     var hasWebsite = !!(payload && payload.hasWebsite);
@@ -185,6 +222,8 @@
     return Promise.all([Storage.getSettings(), Storage.getAutoSearch()]).then(function (parts) {
       var settings = parts[0];
       var autoState = parts[1];
+      var term = searchTermFor(autoState, sender);
+      if (term) profile = Object.assign({}, profile, { search_term: term });
       var postContacts = (autoState && autoState.postContacts) || {};
       var contact = autoState && autoState.postContacts ? autoState.postContacts[username] : null;
       if (contact) {
@@ -297,6 +336,137 @@
     });
   }
 
+  function firstNonEmpty(list, field) {
+    for (var i = 0; i < list.length; i++) {
+      var value = list[i] && list[i][field];
+      if (value !== undefined && value !== null && String(value) !== '') return String(value);
+    }
+    return '';
+  }
+
+  function longestOf(list, field) {
+    var best = '';
+    list.forEach(function (lead) {
+      var value = lead && lead[field] !== undefined && lead[field] !== null ? String(lead[field]) : '';
+      if (value.length > best.length) best = value;
+    });
+    return best;
+  }
+
+  function mergeSelectedLeads(ids) {
+    var unique = [];
+    (ids || []).forEach(function (id) {
+      if (typeof id === 'string' && unique.indexOf(id) === -1) unique.push(id);
+    });
+    if (unique.length < 2) return Promise.resolve({ ok: false, reason: 'need_two' });
+
+    return mutateLeads(function (leads) {
+      var byId = Object.create(null);
+      leads.forEach(function (lead) { byId[lead.id] = lead; });
+      var group = [];
+      for (var i = 0; i < unique.length; i++) {
+        if (!byId[unique[i]]) return { ok: false, reason: 'not_found' };
+        group.push(byId[unique[i]]);
+      }
+
+      var base = Object.assign({}, group[0]);
+      var rest = group.slice(1);
+
+      base.instagram_name = longestOf(group, 'instagram_name');
+      base.bio = longestOf(group, 'bio');
+      base.category = longestOf(group, 'category');
+      base.location = longestOf(group, 'location');
+      base.source_page = longestOf(group, 'source_page');
+      base.email = firstNonEmpty(group, 'email');
+      base.website = firstNonEmpty(group, 'website');
+      base.keyword = firstNonEmpty(group, 'keyword');
+      base.reasons = group.reduce(function (acc, lead) {
+        return acc.length ? acc : (lead.reasons || []);
+      }, []);
+
+      var phoneSource = group.filter(function (lead) {
+        return lead.phone_normalized && !lead.phone_issue;
+      })[0] || group.filter(function (lead) {
+        return lead.phone_raw;
+      })[0] || group[0];
+      base.phone_raw = phoneSource.phone_raw || '';
+      base.phone_normalized = phoneSource.phone_normalized || '';
+      if (phoneSource.phone_issue) base.phone_issue = phoneSource.phone_issue;
+      else delete base.phone_issue;
+      if (phoneSource.phone_replaced_raw) base.phone_replaced_raw = phoneSource.phone_replaced_raw;
+      else delete base.phone_replaced_raw;
+      if (phoneSource.phone_corrected) base.phone_corrected = true;
+      else delete base.phone_corrected;
+
+      var bestFollowers = '';
+      var bestConfidence = -1;
+      group.forEach(function (lead) {
+        var count = N.parseFollowers(lead.followers);
+        if (typeof count !== 'number' || !isFinite(count)) count = -1;
+        if (count > bestConfidence) {
+          bestConfidence = count;
+          bestFollowers = lead.followers || '';
+        }
+      });
+      base.followers = bestFollowers;
+      base.confidence = Math.max.apply(null, group.map(function (lead) { return Number(lead.confidence) || 0; }));
+      base.website_found = !!base.website;
+      base.website_not_found_on_instagram = !base.website;
+
+      var statusRank = { Contacted: 3, Reviewed: 2, Ignore: 1, New: 0 };
+      if (!base.status || base.status === 'New') {
+        group.forEach(function (lead) {
+          var rank = statusRank[lead.status] || 0;
+          var best = statusRank[base.status] || 0;
+          if (rank > best && rank > 0) base.status = lead.status;
+        });
+      }
+      if (!base.status) base.status = 'New';
+
+      base.influencer = group.some(function (lead) { return !!lead.influencer; });
+      var reasons = [];
+      group.forEach(function (lead) {
+        (lead.influencer_reasons || []).forEach(function (reason) {
+          if (reasons.indexOf(reason) === -1) reasons.push(reason);
+        });
+      });
+      base.influencer_reasons = reasons;
+
+      var notes = [];
+      group.forEach(function (lead) {
+        var note = String(lead.notes || '').trim();
+        if (note && notes.indexOf(note) === -1) notes.push(note);
+      });
+      var others = rest.map(function (lead) { return '@' + lead.instagram_username; }).join(', ');
+      if (others) notes.push('Merged from ' + others);
+      base.notes = notes.join(' · ');
+
+      base.search_term = unionTerms(
+        group.map(function (lead) { return lead.search_term || ''; }).join(', '), ''
+      );
+
+      var dates = group.map(function (lead) { return String(lead.date_found || ''); }).filter(Boolean).sort();
+      if (dates.length) base.date_found = dates[0];
+      var seen = group.map(function (lead) { return String(lead.last_seen || ''); }).filter(Boolean).sort();
+      if (seen.length) base.last_seen = seen[seen.length - 1];
+
+      var removeSet = Object.create(null);
+      rest.forEach(function (lead) { removeSet[lead.id] = true; });
+      var next = [];
+      leads.forEach(function (lead) {
+        if (removeSet[lead.id]) return;
+        next.push(lead.id === base.id ? base : lead);
+      });
+
+      return Storage.setLeads(next).then(function () {
+        if (Log && Log.isEnabled()) {
+          Log.debug('Storage', 'merged ' + group.length + ' leads into @' + base.instagram_username);
+        }
+        return { ok: true, id: base.id, username: base.instagram_username, merged: group.length };
+      });
+    });
+  }
+
   function clearLeads() {
     return flushStats().then(function () {
       return mutateLeads(function () { return Storage.clearLeads(); });
@@ -391,25 +561,45 @@
     });
   }
 
+  function parseTerms(input) {
+    var items = Array.isArray(input) ? input : [input];
+    var out = [];
+    var seen = Object.create(null);
+    items.forEach(function (item) {
+      String(item === undefined || item === null ? '' : item).split(/[\n,;]+/).forEach(function (term) {
+        var t = term.trim().replace(/\s+/g, ' ');
+        if (!t) return;
+        var key = t.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        out.push(t);
+      });
+    });
+    return out;
+  }
+
   function autoSearchStart(payload) {
-    var query = String(payload && payload.query || '').trim();
-    if (!query) return Promise.resolve({ started: false, error: 'query_required' });
+    var terms = parseTerms(payload && (payload.queries || payload.query));
+    if (!terms.length) return Promise.resolve({ started: false, error: 'query_required' });
     var target = parseInt(payload && payload.target, 10);
     if (!isFinite(target)) target = 30;
     if (target < 1) target = 1;
     if (target > 500) target = 500;
-    var url = searchUrlFor(query);
+    var url = searchUrlFor(terms[0]);
     if (!url) return Promise.resolve({ started: false, error: 'query_required' });
 
     return findOrCreateInstagramTab(url).then(function (tabId) {
-      return Storage.saveSettings({ autoSearchQuery: query, autoSearchTarget: target }).then(function () {
+      return Storage.saveSettings({ autoSearchQuery: terms.join(', '), autoSearchTarget: target }).then(function () {
         return Storage.setAutoSearch({
           active: true,
           phase: 'harvest',
-          query: query,
+          query: terms[0],
+          queries: terms,
+          queryIndex: 0,
+          totalCollected: 0,
           target: target,
           collected: 0,
-          message: 'Starting…',
+          message: terms.length > 1 ? ('Term 1/' + terms.length + ': ' + terms[0]) : 'Starting…',
           tabId: tabId,
           searchUrl: url,
           visitedPosts: [],
@@ -418,8 +608,10 @@
           hold: null
         });
       }).then(function (state) {
-        if (Log && Log.isEnabled()) Log.debug('AutoSearch', 'started "' + query + '" target ' + target);
-        return { started: true, tabId: state.tabId, searchUrl: url };
+        if (Log && Log.isEnabled()) {
+          Log.debug('AutoSearch', 'started ' + terms.length + ' term(s) "' + terms[0] + '" target ' + target);
+        }
+        return { started: true, tabId: state.tabId, searchUrl: url, terms: terms.length };
       });
     });
   }
@@ -501,6 +693,28 @@
     });
   }
 
+  function termQueries(state) {
+    if (state.queries && state.queries.length) return state.queries;
+    return state.query ? [state.query] : [];
+  }
+
+  function nextTermPatch(state) {
+    var queries = termQueries(state);
+    var index = Number(state.queryIndex) || 0;
+    if (index + 1 >= queries.length) return null;
+    var nextTerm = queries[index + 1];
+    return {
+      queryIndex: index + 1,
+      query: nextTerm,
+      searchUrl: searchUrlFor(nextTerm),
+      collected: 0,
+      pending: [],
+      active: true,
+      phase: 'harvest',
+      message: 'Term ' + (index + 2) + '/' + queries.length + ': ' + nextTerm
+    };
+  }
+
   function bumpCollected(state, rawUsername) {
     var username = normalizeKey(rawUsername);
     if (!username) return Promise.resolve(null);
@@ -514,20 +728,33 @@
       var collected = state.collected;
       var index = findLeadIndex(leads, username);
       var qualifies = index >= 0 && leads[index].status !== 'Ignore';
-      if (qualifies && isNewVisit) collected += 1;
-      var finished = collected >= state.target;
+      var added = qualifies && isNewVisit ? 1 : 0;
+      collected += added;
+      var total = (Number(state.totalCollected) || 0) + added;
+      var reached = collected >= state.target;
+      var advance = reached ? nextTermPatch(state) : null;
       var patch = {
         collected: collected,
         visitedProfiles: visited,
-        active: !finished,
-        phase: finished ? 'done' : state.phase,
-        message: finished ? ('Collected ' + state.target + ' leads') : state.message
+        totalCollected: total
       };
+      if (advance) {
+        patch = Object.assign(patch, advance);
+        patch.message = advance.message;
+      } else {
+        patch.active = !reached;
+        patch.phase = reached ? 'done' : state.phase;
+        patch.message = reached
+          ? (termQueries(state).length > 1
+            ? ('Done — ' + termQueries(state).length + ' terms, ' + total + ' leads')
+            : ('Collected ' + state.target + ' leads'))
+          : state.message;
+      }
       return Storage.setAutoSearch(patch).then(function (next) {
         if (Log && Log.isEnabled()) {
           Log.debug('AutoSearch', username + (qualifies ? ' lead' : ' skip') + ' ' + next.collected + '/' + state.target);
         }
-        return { collected: next.collected, finished: finished };
+        return { collected: next.collected, finished: reached && !advance, advanced: !!advance, totalCollected: total };
       });
     });
   }
@@ -787,7 +1014,14 @@
         if (!username) return { ok: false, reason: 'no_username' };
         return bumpCollected(state, username).then(function (bump) {
           if (!bump) return { ok: false, reason: 'no_username' };
-          return { ok: true, collected: bump.collected, target: state.target, finished: bump.finished };
+          return {
+            ok: true,
+            collected: bump.collected,
+            target: state.target,
+            finished: bump.finished,
+            advanced: bump.advanced,
+            totalCollected: bump.totalCollected
+          };
         });
       }
 
@@ -800,11 +1034,22 @@
       }
 
       if (type === 'exhausted') {
-        return Storage.setAutoSearch({
-          active: false,
-          phase: 'exhausted',
-          message: String(payload.message || 'No more results')
-        }).then(function () { return { ok: true, finished: false }; });
+        var advance = nextTermPatch(state);
+        if (!advance) {
+          return Storage.setAutoSearch({
+            active: false,
+            phase: 'exhausted',
+            message: String(payload.message || 'No more results')
+          }).then(function () { return { ok: true, finished: false, advanced: false }; });
+        }
+        return Storage.setAutoSearch(advance).then(function (next) {
+          if (Log && Log.isEnabled()) {
+            Log.debug('AutoSearch', 'term exhausted, moving to "' + next.query + '"');
+          }
+          return tabsUpdate(state.tabId, next.searchUrl).then(function (nav) {
+            return { ok: true, finished: false, advanced: true, collected: 0, navigated: nav.ok !== false };
+          });
+        });
       }
 
       return Promise.resolve({ ok: false, reason: 'unknown_type' });
@@ -818,7 +1063,10 @@
 
     switch (message.type) {
       case 'PROCESS_CANDIDATE':
-        handled = processCandidate(message.payload);
+        handled = processCandidate(message.payload, sender);
+        break;
+      case 'MERGE_LEADS':
+        handled = mergeSelectedLeads(message.payload && message.payload.ids);
         break;
       case 'DELETE_LEADS':
         handled = deleteLeads(message.payload && message.payload.ids);

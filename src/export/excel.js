@@ -16,6 +16,7 @@
     { key: 'location', header: 'Location' },
     { key: 'followers', header: 'Followers' },
     { key: 'source_page', header: 'Source Page' },
+    { key: 'search_term', header: 'Search Term' },
     { key: 'date_found', header: 'Date Found' },
     { key: 'confidence', header: 'Business Confidence' },
     { key: 'status', header: 'Status' },

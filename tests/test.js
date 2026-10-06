@@ -633,6 +633,7 @@ async function run() {
       location: 'Lahore',
       followers: '1,234',
       source_page: 'https://www.instagram.com/abc_clinic/',
+      search_term: 'skin clinic',
       date_found: '2026-01-01 10:00',
       confidence: 85,
       status: 'New',
@@ -646,7 +647,7 @@ async function run() {
     const expectedHeaders = [
       'Instagram Username', 'Business Name', 'Instagram URL', 'Bio', 'Category',
       'Phone', 'Email', 'Website', 'Location', 'Followers', 'Source Page',
-      'Date Found', 'Business Confidence', 'Status', 'Notes',
+      'Search Term', 'Date Found', 'Business Confidence', 'Status', 'Notes',
       'WhatsApp Message', 'Instagram Message'
     ];
     expectedHeaders.forEach((h) => {
@@ -657,6 +658,7 @@ async function run() {
     assert.strictEqual(rows[0]['Website'], '');
     assert.strictEqual(rows[0]['Phone'], '+92 300 1234567');
     assert.strictEqual(rows[0]['Bio'], 'We care, with "quotes" and, commas');
+    assert.strictEqual(rows[0]['Search Term'], 'skin clinic', 'search term column exported');
     assert.ok(String(rows[0]['WhatsApp Message']).indexOf('ABC Clinic') !== -1, 'wa message must render the business name');
     assert.ok(String(rows[0]['Instagram Message']).indexOf('ABC Clinic') !== -1, 'ig message must render the business name');
   });
@@ -673,7 +675,7 @@ async function run() {
     }];
     const csv = C.toCsv(leads);
     const lines = csv.split('\r\n');
-    assert.strictEqual(lines[0], 'Instagram Username,Business Name,Instagram URL,Bio,Category,Phone,Email,Website,Location,Followers,Source Page,Date Found,Business Confidence,Status,Notes,WhatsApp Message,Instagram Message');
+    assert.strictEqual(lines[0], 'Instagram Username,Business Name,Instagram URL,Bio,Category,Phone,Email,Website,Location,Followers,Source Page,Search Term,Date Found,Business Confidence,Status,Notes,WhatsApp Message,Instagram Message');
     assert.ok(csv.indexOf('"a,b"') !== -1, 'comma escaped');
     assert.ok(csv.indexOf('""comma""') !== -1, 'quotes escaped');
     assert.ok(csv.indexOf('line1\nline2') !== -1, 'newline kept inside quotes');
@@ -1145,6 +1147,188 @@ async function run() {
     assert.strictEqual(ex.ok, true);
     assert.strictEqual(sw.chrome._store.autoSearch.phase, 'exhausted');
     assert.strictEqual(sw.chrome._store.autoSearch.active, false);
+  });
+
+  await test('AUTOSEARCH_START parses multiple search terms and queues them', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 5, active: true, url: 'https://www.instagram.com/' }];
+
+    const started = await sw.dispatch({
+      type: 'AUTOSEARCH_START',
+      payload: { query: 'hair salon, nail bar\nbrow studio, hair salon', target: 10 }
+    });
+    assert.strictEqual(started.started, true);
+    assert.strictEqual(started.terms, 3, 'comma/newline split with dedupe');
+    assert.ok(started.searchUrl.indexOf('q=hair%20salon') !== -1, 'first term drives the first search: ' + started.searchUrl);
+
+    const state = sw.chrome._store.autoSearch;
+    assert.deepStrictEqual(state.queries, ['hair salon', 'nail bar', 'brow studio']);
+    assert.strictEqual(state.query, 'hair salon');
+    assert.strictEqual(state.queryIndex, 0);
+    assert.strictEqual(state.totalCollected, 0);
+
+    const snap = await sw.dispatch({ type: 'GET_SNAPSHOT' });
+    assert.strictEqual(snap.settings.autoSearchQuery, 'hair salon, nail bar, brow studio');
+    assert.strictEqual(snap.settings.autoSearchTarget, 10);
+
+    const blank = await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { queries: ['  ', ',,'] } });
+    assert.strictEqual(blank.started, false);
+    assert.strictEqual(blank.error, 'query_required');
+  });
+
+  await test('reaching the target advances to the next search term and keeps leads separate', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 5, active: true, url: 'https://www.instagram.com/' }];
+    await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { queries: ['beauty', 'brows'], target: 1 } });
+    const sender = { tab: { id: 5 } };
+
+    const saved1 = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: { confidence: 80, hasWebsite: false, profile: { instagram_username: 'term_one_shop', website: '' } }
+    });
+    assert.strictEqual(saved1.saved, true);
+    assert.strictEqual(sw.chrome._store.leads.find((l) => l.instagram_username === 'term_one_shop').search_term,
+      'beauty', 'lead stamped with the term that found it');
+
+    const p1 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'profileSubmitted', username: 'term_one_shop' } }, sender);
+    assert.strictEqual(p1.ok, true);
+    assert.strictEqual(p1.finished, false, 'more terms remain, so the run is not finished');
+    assert.strictEqual(p1.advanced, true);
+    assert.strictEqual(p1.totalCollected, 1);
+
+    const mid = sw.chrome._store.autoSearch;
+    assert.strictEqual(mid.active, true, 'session continues on the next term');
+    assert.strictEqual(mid.query, 'brows');
+    assert.strictEqual(mid.queryIndex, 1);
+    assert.strictEqual(mid.collected, 0, 'per-term counter resets');
+    assert.strictEqual(mid.totalCollected, 1, 'session total keeps counting');
+    assert.deepStrictEqual(mid.pending, [], 'queued posts from the previous term are dropped');
+    assert.ok(mid.searchUrl.indexOf('q=brows') !== -1, 'searchUrl: ' + mid.searchUrl);
+
+    const saved2 = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: { confidence: 80, hasWebsite: false, profile: { instagram_username: 'term_two_shop', website: '' } }
+    });
+    assert.strictEqual(saved2.saved, true);
+    assert.strictEqual(sw.chrome._store.leads.find((l) => l.instagram_username === 'term_two_shop').search_term,
+      'brows', 'second term stamps its own leads');
+
+    const p2 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'profileSubmitted', username: 'term_two_shop' } }, sender);
+    assert.strictEqual(p2.finished, true, 'last term reached its target');
+    const done = sw.chrome._store.autoSearch;
+    assert.strictEqual(done.active, false);
+    assert.strictEqual(done.phase, 'done');
+    assert.strictEqual(done.totalCollected, 2);
+  });
+
+  await test('exhausted search page advances to the next term instead of stopping', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 5, active: true, url: 'https://www.instagram.com/' }];
+    await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { queries: ['spa', 'yoga'], target: 5 } });
+    const sender = { tab: { id: 5 } };
+    const baseline = sw.chrome._tabCalls.updated.length;
+
+    const ex = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex.ok, true);
+    assert.strictEqual(ex.advanced, true);
+    const state = sw.chrome._store.autoSearch;
+    assert.strictEqual(state.active, true, 'session continues on the next term');
+    assert.strictEqual(state.query, 'yoga');
+    assert.ok(state.searchUrl.indexOf('q=yoga') !== -1, 'searchUrl: ' + state.searchUrl);
+    assert.strictEqual(sw.chrome._tabCalls.updated.length, baseline + 1, 'tab navigated to the next search');
+    assert.ok(sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1].url.indexOf('q=yoga') !== -1);
+
+    const ex2 = await sw.dispatch({ type: 'AUTOSEARCH_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    assert.strictEqual(ex2.advanced, false, 'the last term exhausts the run');
+    assert.strictEqual(sw.chrome._store.autoSearch.active, false);
+    assert.strictEqual(sw.chrome._store.autoSearch.phase, 'exhausted');
+  });
+
+  await test('leads are stamped with the search term of the active session tab', async () => {
+    const sw = loadServiceWorker();
+    sw.chrome._tabCalls.list = [{ id: 5, active: true, url: 'https://www.instagram.com/' }];
+    await sw.dispatch({ type: 'AUTOSEARCH_START', payload: { query: 'boutique', target: 5 } });
+
+    const inTab = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: { confidence: 80, hasWebsite: false, profile: { instagram_username: 'stamped_shop', website: '' } }
+    }, { tab: { id: 5 } });
+    assert.strictEqual(inTab.saved, true);
+    let lead = sw.chrome._store.leads.find((l) => l.instagram_username === 'stamped_shop');
+    assert.strictEqual(lead.search_term, 'boutique', 'session tab stamps the current term');
+
+    sw.chrome._store.autoSearch.queries = ['shoes'];
+    sw.chrome._store.autoSearch.query = 'shoes';
+
+    const outside = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: { confidence: 80, hasWebsite: false, profile: { instagram_username: 'browser_find', website: '' } }
+    }, { tab: { id: 9 } });
+    assert.strictEqual(outside.saved, true);
+    lead = sw.chrome._store.leads.find((l) => l.instagram_username === 'browser_find');
+    assert.strictEqual(lead.search_term, undefined, 'a browsing tab outside the session must not stamp');
+
+    const revisit = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: { confidence: 80, hasWebsite: false, profile: { instagram_username: 'browser_find', website: '' } }
+    }, { tab: { id: 5 } });
+    assert.strictEqual(revisit.reason, 'duplicate');
+    lead = sw.chrome._store.leads.find((l) => l.instagram_username === 'browser_find');
+    assert.strictEqual(lead.search_term, 'shoes', 'session tab stamps on re-visit via the merge');
+  });
+
+  await test('MERGE_LEADS combines selected leads into the first selected', async () => {
+    const sw = loadServiceWorker();
+    await sw.dispatch({ type: 'CLEAR_LEADS' });
+    const mk = (id, username, extra) => Object.assign({
+      id, instagram_username: username,
+      instagram_url: 'https://www.instagram.com/' + username + '/',
+      instagram_name: '', bio: '', category: '', email: '', website: '', location: '',
+      phone_raw: '', phone_normalized: '', followers: '', status: 'New', notes: '',
+      confidence: 50, search_term: '', date_found: '2026-01-02 10:00'
+    }, extra || {});
+    sw.chrome._store.leads = [
+      mk('id_a', 'alpha_shop', {
+        instagram_name: 'Alpha', bio: 'Short bio', email: 'a@x.example',
+        search_term: 'salon', notes: 'first pass'
+      }),
+      mk('id_b', 'beta_shop', {
+        instagram_name: 'Beta Beauty Studio Long', bio: 'A much longer bio with details',
+        email: 'b@x.example', phone_raw: '+393331112233', phone_normalized: '+393331112233',
+        search_term: 'brows', confidence: 90, status: 'Reviewed'
+      }),
+      mk('id_c', 'keep_me', { instagram_name: 'Keep' })
+    ];
+
+    const tooFew = await sw.dispatch({ type: 'MERGE_LEADS', payload: { ids: ['id_a'] } });
+    assert.strictEqual(tooFew.ok, false);
+    assert.strictEqual(tooFew.reason, 'need_two');
+
+    const missing = await sw.dispatch({ type: 'MERGE_LEADS', payload: { ids: ['id_a', 'nope'] } });
+    assert.strictEqual(missing.ok, false);
+    assert.strictEqual(missing.reason, 'not_found');
+    assert.strictEqual(sw.chrome._store.leads.length, 3, 'failed merges leave leads untouched');
+
+    const res = await sw.dispatch({ type: 'MERGE_LEADS', payload: { ids: ['id_b', 'id_a'] } });
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.merged, 2);
+    assert.strictEqual(res.id, 'id_b', 'the first selected lead survives');
+
+    const leads = sw.chrome._store.leads;
+    assert.strictEqual(leads.length, 2, 'the merged-away lead is removed');
+    assert.ok(!leads.some((l) => l.id === 'id_a'), 'id_a removed');
+    assert.ok(leads.some((l) => l.id === 'id_c'), 'unrelated lead untouched');
+
+    const base = leads.find((l) => l.id === 'id_b');
+    assert.strictEqual(base.instagram_name, 'Beta Beauty Studio Long', 'longest non-empty name wins');
+    assert.strictEqual(base.bio, 'A much longer bio with details');
+    assert.strictEqual(base.email, 'b@x.example', 'first selected non-empty email wins');
+    assert.strictEqual(base.phone_normalized, '+393331112233', 'phone taken from the lead with a clean number');
+    assert.strictEqual(base.search_term, 'brows, salon', 'search terms unioned in selection order');
+    assert.ok(base.notes.indexOf('first pass') !== -1, 'notes joined');
+    assert.ok(base.notes.indexOf('Merged from @alpha_shop') !== -1, 'merge provenance recorded');
+    assert.strictEqual(base.status, 'Reviewed', 'base status kept when not New');
+    assert.strictEqual(base.confidence, 90, 'highest confidence kept');
   });
 
   await test('AUTOSEARCH_NAVIGATE allows only instagram/linktree urls on the driving tab', async () => {

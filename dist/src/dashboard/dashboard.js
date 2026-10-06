@@ -12,6 +12,7 @@
   var state = {
     leads: [],
     filter: 'all',
+    term: 'all',
     query: '',
     sort: 'date_desc',
     selected: Object.create(null),
@@ -46,9 +47,50 @@
     if (!query) return true;
     var haystack = [
       lead.instagram_name, lead.instagram_username, lead.bio, lead.category,
-      lead.phone_raw, lead.phone_normalized, lead.email, lead.location, lead.notes
+      lead.phone_raw, lead.phone_normalized, lead.email, lead.location, lead.notes,
+      lead.search_term
     ].join(' ').toLowerCase();
     return haystack.indexOf(query) !== -1;
+  }
+
+  function termList(lead) {
+    return String((lead && lead.search_term) || '').split(',')
+      .map(function (t) { return t.trim(); })
+      .filter(Boolean);
+  }
+
+  function matchesTerm(lead) {
+    if (state.term === 'all') return true;
+    var terms = termList(lead);
+    if (state.term === '__none__') return terms.length === 0;
+    return terms.indexOf(state.term) !== -1;
+  }
+
+  function renderTermFilter() {
+    var counts = Object.create(null);
+    var noTerm = 0;
+    state.leads.forEach(function (lead) {
+      var terms = termList(lead);
+      if (!terms.length) {
+        noTerm += 1;
+        return;
+      }
+      terms.forEach(function (term) { counts[term] = (counts[term] || 0) + 1; });
+    });
+    var names = Object.keys(counts).sort(function (a, b) {
+      return a.toLowerCase().localeCompare(b.toLowerCase());
+    });
+    var options = ['<option value="all">All terms (' + state.leads.length + ')</option>'];
+    names.forEach(function (name) {
+      options.push('<option value="' + escapeHtml(name) + '">' + escapeHtml(name) +
+        ' (' + counts[name] + ')</option>');
+    });
+    if (noTerm) {
+      options.push('<option value="__none__">No search term (' + noTerm + ')</option>');
+    }
+    if (state.term !== 'all' && state.term !== '__none__' && !counts[state.term]) state.term = 'all';
+    els.termFilter.innerHTML = options.join('');
+    els.termFilter.value = state.term;
   }
 
   function matchesFilter(lead) {
@@ -91,7 +133,7 @@
   function visibleLeads() {
     var query = state.query.trim().toLowerCase();
     return sortLeads(state.leads.filter(function (lead) {
-      return matchesFilter(lead) && matchesQuery(lead, query);
+      return matchesFilter(lead) && matchesTerm(lead) && matchesQuery(lead, query);
     }));
   }
 
@@ -105,10 +147,12 @@
 
   function render() {
     var list = visibleLeads();
+    renderTermFilter();
 
     els.leadCount.textContent = state.leads.length + (state.leads.length === 1 ? ' lead' : ' leads');
     var selCount = selectedIds().length;
     els.selectedCount.textContent = selCount + (selCount === 1 ? ' lead selected' : ' leads selected');
+    els.btnMerge.disabled = selCount < 2;
     els.emptyState.hidden = state.leads.length !== 0;
     els.noMatchState.hidden = !(state.leads.length > 0 && list.length === 0);
 
@@ -143,6 +187,7 @@
           '<td>' +
             '<div class="cell-name">' + escapeHtml(name) + '</div>' +
             (lead.category ? '<div class="cell-sub">' + escapeHtml(lead.category) + '</div>' : '') +
+            (lead.search_term ? '<div class="cell-sub"><span class="term-chip" title="Found by this search term">⌕ ' + escapeHtml(lead.search_term) + '</span></div>' : '') +
             (lead.bio ? '<div class="cell-bio">' + escapeHtml(lead.bio) + '</div>' : '') +
           '</td>' +
           '<td><a class="cell-link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">@' + escapeHtml(lead.instagram_username) + '</a></td>' +
@@ -307,6 +352,8 @@
     els.noMatchState = $('noMatchState');
     els.searchInput = $('searchInput');
     els.sortSelect = $('sortSelect');
+    els.termFilter = $('termFilter');
+    els.btnMerge = $('btnMerge');
     els.checkAll = $('checkAll');
     els.toast = $('toast');
 
@@ -321,6 +368,11 @@
 
     els.sortSelect.addEventListener('change', function () {
       state.sort = els.sortSelect.value;
+      render();
+    });
+
+    els.termFilter.addEventListener('change', function () {
+      state.term = els.termFilter.value;
       render();
     });
 
@@ -346,6 +398,30 @@
     $('btnSelectAll').addEventListener('click', function () {
       visibleLeads().forEach(function (lead) { state.selected[lead.id] = true; });
       render();
+    });
+
+    els.btnMerge.addEventListener('click', function () {
+      var ids = selectedIds();
+      if (ids.length < 2) {
+        showToast('Select at least 2 leads to merge');
+        return;
+      }
+      var primary = state.leads.filter(function (lead) { return lead.id === ids[0]; })[0];
+      var name = primary ? primary.instagram_username : '';
+      if (!window.confirm('Merge ' + ids.length + ' selected leads into @' + name + '?\n' +
+        'The other ' + (ids.length - 1) + ' lead(s) will be removed.')) {
+        return;
+      }
+      sendMessage({ type: 'MERGE_LEADS', payload: { ids: ids } }).then(function (response) {
+        if (!response || !response.ok) {
+          showToast('Could not merge' + (response && response.reason ? ': ' + response.reason : ''), true);
+          return;
+        }
+        state.selected = Object.create(null);
+        loadLeads().then(function () {
+          showToast('Merged ' + response.merged + ' leads into @' + response.username);
+        });
+      });
     });
 
     els.leadRows.addEventListener('change', function (event) {

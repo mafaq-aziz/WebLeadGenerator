@@ -73,8 +73,11 @@
 
   function renderAutoSearch(s, settings) {
     s = s || {};
+    var queries = Array.isArray(s.queries) && s.queries.length ? s.queries : (s.query ? [s.query] : []);
     if (document.activeElement !== els.autoQuery) {
-      els.autoQuery.value = s.query || settings.autoSearchQuery || '';
+      els.autoQuery.value = queries.length > 1
+        ? queries.join('\n')
+        : (s.query || settings.autoSearchQuery || '');
     }
     if (document.activeElement !== els.autoTarget) {
       var t = Number(s.active ? s.target : settings.autoSearchTarget);
@@ -88,17 +91,24 @@
     els.btnAutoStop.hidden = !active;
 
     var collected = typeof s.collected === 'number' ? s.collected : 0;
+    var total = typeof s.totalCollected === 'number' ? s.totalCollected : collected;
     var target = Number(s.target) || Number(settings.autoSearchTarget) || 30;
-    var pct = target > 0 ? Math.min(100, Math.round((collected / target) * 100)) : 0;
+    var termCount = queries.length;
+    var termPos = (Number(s.queryIndex) || 0) + 1;
+    var denominator = termCount > 1 ? target * termCount : target;
+    var pct = denominator > 0 ? Math.min(100, Math.round(((termCount > 1 ? total : collected) / denominator) * 100)) : 0;
     els.autoBar.style.width = pct + '%';
 
     if (s.phase === 'done') {
-      els.autoStatus.textContent = 'Done — ' + collected + ' / ' + target + ' leads collected';
+      els.autoStatus.textContent = termCount > 1
+        ? 'Done — ' + termCount + ' terms, ' + total + ' leads collected'
+        : 'Done — ' + collected + ' / ' + target + ' leads collected';
       return;
     }
     var base = AUTO_PHASE_TEXT[s.phase] || (s.message || 'Idle');
     if (active && s.phase && AUTO_PHASE_TEXT[s.phase]) {
-      els.autoStatus.textContent = base + ' · ' + collected + ' / ' + target;
+      els.autoStatus.textContent = base + ' · ' + collected + ' / ' + target +
+        (termCount > 1 ? ' · term ' + termPos + '/' + termCount + ' · total ' + total : '');
     } else {
       els.autoStatus.textContent = s.message || base;
     }
@@ -177,7 +187,9 @@
           showToast('Could not start auto search', true);
           return;
         }
-        showToast('Auto search started');
+        showToast(res.terms > 1
+          ? 'Auto search started — ' + res.terms + ' terms, kept separate per lead'
+          : 'Auto search started');
         refresh();
       });
     });

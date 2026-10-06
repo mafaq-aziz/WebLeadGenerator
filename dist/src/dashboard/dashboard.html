@@ -16,6 +16,7 @@
       <span class="count" id="leadCount">0 leads</span>
       <span class="count count-selected" id="selectedCount">0 selected</span>
       <button class="btn btn-ghost" id="btnSelectAll">Select all</button>
+      <button class="btn btn-ghost" id="btnMerge" title="Merge the selected leads into one (the first selected stays)">Merge selected</button>
       <button class="btn btn-ghost" id="btnFlagInfluencers">Flag influencers</button>
       <button class="btn btn-ghost" id="btnFixPhones">Fix numbers</button>
       <button class="btn" id="btnExportSelected">Export selected</button>
@@ -36,6 +37,13 @@
       <button class="chip" data-filter="email">Has email</button>
       <button class="chip" data-filter="ignored">Influencers (ignored)</button>
     </div>
+
+    <label class="sort-wrap">
+      Search term
+      <select id="termFilter">
+        <option value="all">All terms</option>
+      </select>
+    </label>
 
     <label class="sort-wrap">
       Sort

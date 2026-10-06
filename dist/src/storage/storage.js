@@ -32,6 +32,9 @@
   var DEFAULT_AUTOSEARCH = {
     active: false,
     query: '',
+    queries: [],
+    queryIndex: 0,
+    totalCollected: 0,
     target: 30,
     collected: 0,
     phase: 'idle',

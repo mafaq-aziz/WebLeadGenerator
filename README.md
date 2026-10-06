@@ -7,11 +7,15 @@ Two modes plus a draft-based outreach workflow:
 
 - **Passive scan** — observes Instagram pages you already visit, extracts publicly
   visible business information, and saves **only leads that show no visible website**.
-- **Auto Search** — type a search term in the popup and the extension takes over an
+- **Auto Search** — type one or more search terms in the popup (one per line or
+  comma-separated) and the extension takes over an
   Instagram tab: it opens the search results, auto-scrolls, opens each post, reads the
   caption for a phone/email, jumps to the author's profile, extracts everything visible,
   goes back to the queue, and stops after a configurable number of **leads (profiles
-  with no website)**. **No business verification is applied in this mode** — every
+  with no website) per term**, then automatically continues with the next term.
+  Every lead is stamped with the **search term that found it**, so results from
+  different terms stay separate (filterable and exportable). **No business verification
+  is applied in this mode** — every
   visited profile is extracted; only profiles that already have a website are excluded
   from the saved leads and from the target count.
 - **Influencer filtering + outreach drafts** — profiles that look like influencers,
@@ -195,34 +199,41 @@ displays, so every saved phone is verified:
 ### Auto Search mode
 
 1. Click the extension icon → **Auto Search**.
-2. Enter a search term (a `#hashtag` opens the hashtag page, anything else opens
-   keyword search) and the number of leads to collect (1–500, remembered for next
-   time).
+2. Enter your search terms — one per line (or comma-separated). A `#hashtag` opens the
+   hashtag page, anything else opens keyword search. Also set the number of leads to
+   collect **per term** (1–500, remembered for next time).
 3. Press **Start Search**. The extension takes over the first open Instagram tab (or
    opens one) and drives it: harvest post links from the results grid → auto-scroll →
    open a post (reading its caption for a phone/email) → open the author's profile →
    extract → return to the queue → repeat. Every step waits a **random 2–4 seconds** —
    there is no fixed rhythm, and the randomization applies to scrolling, navigation and
    profile checks alike.
-4. Progress shows live in the popup (`Searching results… · 12 / 30`). Press **Stop
-   Search** at any time; the run also stops itself at the target, at a login wall, or
-   when results are exhausted.
-5. Every visited profile is extracted — the confidence threshold is bypassed — but
+4. Progress shows live in the popup (`Searching results… · 12 / 30 · term 2/3 · total 45`).
+   When a term hits its target (or its results run out), the run **automatically
+   continues with the next term**; press **Stop Search** at any time. The run also
+   stops itself at a login wall, or when the last term is done.
+5. **Terms stay separate**: every saved lead carries a `search_term` field with the
+   term(s) that found it (a lead found again under another term accumulates both).
+   The dashboard's **Search term** dropdown filters by term with per-term counts, each
+   row shows the term as a badge, the term is included in the search box and exported
+   as a **Search Term** column, and passive leads (found outside a run) fall under
+   *No search term*.
+6. Every visited profile is extracted — the confidence threshold is bypassed — but
    **only profiles that end up saved as leads (no website) count toward the target**.
    Profiles that display a website are still visited and counted in statistics
    (*With website*) but do not advance the counter.
-6. **Linktree resolution**: if the only link in the bio is a Linktree
+7. **Linktree resolution**: if the only link in the bio is a Linktree
    (`linktr.ee/…`), the run opens the Linktree page in the driven tab and checks its
    links. A real website found there excludes the profile (counted under *With
    website*, does not count toward the target); no website found means the profile is
    saved as a lead and counts. WhatsApp / social links on the Linktree are ignored, so
    they can never fake a website.
-7. **Caption contacts**: phone numbers and emails found in a post's caption are stashed
+8. **Caption contacts**: phone numbers and emails found in a post's caption are stashed
    under the post's author and merged into the profile when it is extracted — so a
    brand that hides its number in posts still ends up with `phone_normalized`/`email`
    on the saved lead (when the save-phone/save-email settings allow it). Caption-sourced
    numbers are flagged `caption_source` for review (see *Phone number verification*).
-8. **Collab posts**: a post co-authored by an influencer and a brand lists both
+9. **Collab posts**: a post co-authored by an influencer and a brand lists both
    accounts. The run ranks every author (business keywords in the handle, search-term
    matches; name-like handles and blogger markers such as `blog`/`daily`/`vlogs` are
    deprioritized) and opens only the best-ranked one — so the brand's profile is
@@ -234,7 +245,8 @@ submitted exactly once.
 
 ### Toolbar popup
 
-- Auto Search: term, target, start/stop, progress bar
+- Auto Search: search terms (one per line / comma-separated, run sequentially),
+  target per term, start/stop, live progress with `term i/N` and session total
 - Start/stop passive scanning (per-session toggle)
 - Live counters: scanned, businesses, with/without website, saved, duplicates
 - **Default country code for numbers without +CC** (fallback used by *Fix numbers*)
@@ -244,6 +256,13 @@ submitted exactly once.
 
 - Search and filter leads (including the *Influencers (ignored)* and *Bad number* chips),
   edit status/notes
+- **Search term** dropdown: shows every term that produced leads with per-term counts
+  (*No search term* collects passive/manual finds) — selecting one filters the table;
+  each row carries its term as a badge, and the term is also part of the search box
+- **Merge selected**: with two or more rows checked, combines them into the
+  first-checked lead (longest name/bio/category/location, best phone, first
+  email/website, highest confidence, union of search terms and notes with a
+  `Merged from @…` provenance line) and removes the others — confirm first
 - **Flag influencers** re-scan for creator-style profiles
 - **Fix numbers** verifies every stored phone and auto-corrects numbers that
   contradict the profile bio (↻ marks corrected cells); unresolved cells show ⚠ and
@@ -252,7 +271,8 @@ submitted exactly once.
   placeholders, prepare/stop, live status, ready-banner with a beep
 - Delete individual leads or clear all
 - **Export Excel** (`.xlsx`) and **Export CSV** (UTF-8 with BOM) — both include
-  per-lead **WhatsApp Message** and **Instagram Message** columns rendered from your
+  the **Search Term** column plus per-lead **WhatsApp Message** and **Instagram
+  Message** columns rendered from your
   templates; *Export all* excludes `Ignore`d influencer leads and says how many
 - Settings: confidence threshold (default 70), `debug` logging toggle
 
@@ -275,7 +295,7 @@ submitted exactly once.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 82 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 87 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -304,9 +324,10 @@ npm run smoke    # real headless Chrome end-to-end test
    influencer must never appear in `visitedProfiles`/leads), **stashed the phone and
    email found in the post caption** (`autoSearch.postContacts`, later merged onto the
    lead as `phone_normalized`/`email`), **opened and resolved its Linktree**
-   (server-side hit counter), submitted it with `saveAll`, saved the `a1_shop` lead
-   with an empty `website`, and stopped itself at the target
-   (`autoSearch.phase === 'done'`, `collected >= 2`, counting only saved leads).
+    (server-side hit counter), submitted it with `saveAll`, saved the `a1_shop` lead
+    with an empty `website`, stamped it with the session's **search term**
+    (`search_term === 'skin clinic'`), and stopped itself at the target
+    (`autoSearch.phase === 'done'`, `collected >= 2`, counting only saved leads).
 7. Opens the dashboard over CDP and runs the phone verification flow: `CLEAN_PHONES`
    flags the caption-sourced number as `caption_source`, then `SET_PHONE` accepts the
    correct number and clears the flag on the stored lead.
@@ -317,6 +338,10 @@ npm run smoke    # real headless Chrome end-to-end test
    from the thread composer; **WhatsApp** — asserts the opened
    tab URL is `web.whatsapp.com/send?phone=393331234567&text=…` with the rendered
    message in it (prefilled, not sent).
+9. Sends `MERGE_LEADS` for the auto-search lead plus the passive profile lead:
+   asserts the merge reports 2 merged into the first-selected id, the lead list
+   shrinks by exactly one, the merged-away lead is gone, and the survivor keeps
+   the unioned `search_term`.
 
 ## Architecture
 
@@ -350,11 +375,14 @@ src/
                                   only link is a Linktree
     linktree-resolver.js          runs on linktr.ee during Auto Search; reports the first
                                   real website link (or none) back to the SW
-  background/service-worker.js    single writer for leads/statistics; auto-search queue,
+  background/service-worker.js    single writer for leads/statistics; auto-search queue
+                                  (multi-term: sequential per-term runs with automatic
+                                  advance, search-term stamping on saved leads),
                                   tab driving (claim/navigate/advance), Linktree
                                   hold/resolve handlers, post-contact stash, influencer
-                                  flagging, and the target counter (counts only saved,
-                                  non-ignored leads)
+                                  flagging, the target counter (counts only saved,
+                                  non-ignored leads), and MERGE_LEADS (combine
+                                  selected leads into the first selected)
   background/outreach-runner.js   paced draft preparation: one tab per lead (WhatsApp
                                   deep link / IG profile + Message click); every tab must
                                   finish loading before the next one opens (WhatsApp
@@ -364,11 +392,12 @@ src/
   export/excel.js                 bundled SheetJS workbook builder (+ message columns)
   export/csv.js                   CSV with BOM + RFC quoting (shares column model)
   popup/                          toolbar UI
-  dashboard/                      management UI, settings, export buttons, outreach
+  dashboard/                      management UI, settings, export buttons, search-term
+                                  filter, merge-selected, outreach
                                   panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-tests/                            82-test suite
+tests/                            87-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to
