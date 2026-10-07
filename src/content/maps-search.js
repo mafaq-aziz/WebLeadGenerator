@@ -285,23 +285,42 @@
     return '';
   }
 
+  function cleanPhoneText(s) {
+    return String(s || '').replace(/[\uE000-\uF8FF\u200B-\u200D\uFEFF\u00AD]/g, '').trim();
+  }
+
+  function pickPhone(candidates) {
+    var best = '';
+    var bestDigits = 0;
+    for (var i = 0; i < candidates.length; i++) {
+      var value = cleanPhoneText(candidates[i]);
+      var digits = value.replace(/[^0-9]/g, '').length;
+      if (digits > bestDigits) {
+        best = value;
+        bestDigits = digits;
+      }
+    }
+    return bestDigits > 0 ? best : '';
+  }
+
   function extractPlace(doc) {
     var d = doc || root.document;
     var nameEl = d.querySelector('h1') || d.querySelector('[role="heading"]');
     var name = text(nameEl);
     var address = firstText(d, ['[data-item-id="address"]', 'button[data-item-id="address"]']);
     var phoneLink = d.querySelector('a[href^="tel:"]');
-    var phone = '';
+    var phoneEl = d.querySelector('[data-item-id^="phone:"]');
+    var phoneCandidates = [];
     if (phoneLink) {
-      phone = text(phoneLink) || String(phoneLink.getAttribute('href') || '').replace(/^tel:/i, '');
+      phoneCandidates.push(text(phoneLink));
+      phoneCandidates.push(String(phoneLink.getAttribute('href') || '').replace(/^tel:/i, ''));
     }
-    if (!phone) {
-      var phoneEl = d.querySelector('[data-item-id^="phone:"]');
-      if (phoneEl) {
-        phone = text(phoneEl) ||
-          String(phoneEl.getAttribute('data-item-id') || '').replace(/^phone:/i, '');
-      }
+    if (phoneEl) {
+      phoneCandidates.push(text(phoneEl));
+      phoneCandidates.push(String(phoneEl.getAttribute('data-item-id') || '')
+        .replace(/^phone:/i, '').replace(/^tel:/i, ''));
     }
+    var phone = pickPhone(phoneCandidates);
     var website = '';
     var websiteLink = d.querySelector('a[data-item-id="authority"]') ||
       d.querySelector('a[data-item-id^="website"]') ||

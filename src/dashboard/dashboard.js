@@ -660,7 +660,7 @@
     wire();
     loadLeads();
     Storage.getSettings().then(function (settings) {
-      var runClean = !settings || settings.phoneCleanupVersion !== 1;
+      var runClean = !settings || settings.phoneCleanupVersion !== 2;
       var runPermits = !settings || settings.permitExcludeVersion !== 2;
       if (!runClean && !runPermits) return null;
       var messages = [];

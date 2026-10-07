@@ -350,7 +350,7 @@ driven tab and start the search again.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 94 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 95 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -476,7 +476,7 @@ src/
                                    panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
- tests/                            94-test suite
+  tests/                            95-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to

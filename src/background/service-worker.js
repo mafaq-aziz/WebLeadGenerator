@@ -203,6 +203,12 @@
     }
     if (issue) lead.phone_issue = issue;
     else delete lead.phone_issue;
+    if (!/[0-9]/.test(String(lead.phone_raw || '')) &&
+      !/[0-9]/.test(String(lead.phone_normalized || ''))) {
+      lead.phone_raw = '';
+      lead.phone_normalized = '';
+      delete lead.phone_issue;
+    }
     return lead;
   }
 
@@ -956,8 +962,8 @@
       };
       var store = changed ? Storage.setLeads(leads) : Promise.resolve();
       return store.then(function () {
-        if (settings.phoneCleanupVersion === 1) return done();
-        return Storage.saveSettings({ phoneCleanupVersion: 1 }).then(done);
+        if (settings.phoneCleanupVersion === 2) return done();
+        return Storage.saveSettings({ phoneCleanupVersion: 2 }).then(done);
       });
       });
     }).catch(function (err) {

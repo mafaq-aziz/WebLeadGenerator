@@ -2799,7 +2799,27 @@ async function run() {
     assert.strictEqual(second.corrected, 0, 'no double corrections');
     assert.strictEqual(second.flagged, 1);
     const settings = sw.chrome._store.settings || {};
-    assert.strictEqual(settings.phoneCleanupVersion, 1, 'cleanup marks itself done');
+    assert.strictEqual(settings.phoneCleanupVersion, 2, 'cleanup marks itself done');
+  });
+
+  await test('phone cleanup: digit-less junk raws are cleared, not flagged', async () => {
+    const sw = loadServiceWorker();
+    await sw.dispatch({ type: 'CLEAR_LEADS' });
+    sw.chrome._store.leads = [
+      { id: 'g1', instagram_username: 'glyph_one', status: 'New', phone_raw: '\uE0B0', phone_issue: 'too_short' },
+      { id: 'g2', instagram_username: 'dot_two', status: 'New', phone_raw: '..', phone_issue: 'too_short' },
+      { id: 'g3', instagram_username: 'keep_three', status: 'New', phone_raw: '+971 50 123 4567' }
+    ];
+
+    const res = await sw.dispatch({ type: 'CLEAN_PHONES' });
+    assert.strictEqual(res.ok, true, JSON.stringify(res));
+    const by = (id) => sw.chrome._store.leads.find((l) => l.id === id);
+    assert.strictEqual(by('g1').phone_raw, '', 'icon glyph is not a phone number');
+    assert.strictEqual(by('g1').phone_issue, undefined, 'cleared junk carries no review flag');
+    assert.strictEqual(by('g2').phone_raw, '', 'digit-less dots are cleared');
+    assert.strictEqual(by('g2').phone_issue, undefined);
+    assert.strictEqual(by('g3').phone_normalized, '+971501234567', 'real numbers survive the cleanup');
+    assert.strictEqual(by('g3').phone_issue, undefined);
   });
 
   await test('phone attribution: applied when leads are saved', async () => {
@@ -3416,6 +3436,16 @@ async function run() {
     </body></html>`, { url: 'https://www.google.com/maps/place/Hidden+Phone/', runScripts: 'outside-only' });
     assert.strictEqual(MS.extractPlace(attrDoc.window.document).phone, '+971507778888',
       'empty phone button falls back to the data-item-id value');
+
+    const glyphDoc = new JSDOM(`<!DOCTYPE html><html><body>
+      <h1>Glyph Spa</h1>
+      <span>Spa</span>
+      <button data-item-id="address">Marina, Dubai</button>
+      <a href="tel:+971561809099">\uE0B0</a>
+      <button data-item-id="phone:tel:+971561809099"><div>\uE0B0</div></button>
+    </body></html>`, { url: 'https://www.google.com/maps/place/Glyph+Spa/', runScripts: 'outside-only' });
+    assert.strictEqual(MS.extractPlace(glyphDoc.window.document).phone, '+971561809099',
+      'icon-glyph-only tel text must not shadow the href/button digits');
 
     assert.strictEqual(MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'),
       MS.mapsKeyFor('Spa One', 'https://www.google.com/maps/place/Spa+One/'), 'key is stable');
