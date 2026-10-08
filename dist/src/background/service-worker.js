@@ -1172,7 +1172,7 @@
 
   function mapsUrlFor(query) {
     var q = String(query || '').trim();
-    return q ? 'https://www.google.com/maps/search/?q=' + encodeURIComponent(q) : '';
+    return q ? 'https://www.google.com/maps/search/' + encodeURIComponent(q) : '';
   }
 
   function normalizeMapsPlaceUrl(raw) {

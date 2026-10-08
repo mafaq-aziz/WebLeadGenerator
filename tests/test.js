@@ -3011,7 +3011,7 @@ async function run() {
     });
     assert.strictEqual(started.started, true);
     assert.strictEqual(started.terms, 2, 'deduped multi-term start');
-    assert.ok(started.searchUrl.indexOf('https://www.google.com/maps/search/?q=medspa%20in%20dubai') === 0,
+    assert.ok(started.searchUrl.indexOf('https://www.google.com/maps/search/medspa%20in%20dubai') === 0,
       'maps search url: ' + started.searchUrl);
 
     const state = sw.chrome._store.mapsSearch;
@@ -3028,7 +3028,7 @@ async function run() {
 
     const lastUpdate = sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1];
     assert.strictEqual(lastUpdate.id, 9, 'the open google tab must be reused');
-    assert.ok(lastUpdate.url.indexOf('https://www.google.com/maps/search/?q=medspa%20in%20dubai') === 0,
+    assert.ok(lastUpdate.url.indexOf('https://www.google.com/maps/search/medspa%20in%20dubai') === 0,
       'tab navigated to the maps search: ' + lastUpdate.url);
 
     const snap = await sw.dispatch({ type: 'GET_SNAPSHOT' });
@@ -3087,7 +3087,7 @@ async function run() {
     assert.strictEqual(a2.next, 'https://www.google.com/maps/place/Glow+Med+Spa/');
     const a3 = await sw.dispatch({ type: 'MAPS_ADVANCE' }, sender);
     assert.strictEqual(a3.next, null, 'empty queue returns null so the controller goes back to results');
-    assert.ok(a3.searchUrl.indexOf('https://www.google.com/maps/search/?q=salon%20dubai') === 0);
+    assert.ok(a3.searchUrl.indexOf('https://www.google.com/maps/search/salon%20dubai') === 0);
 
     const badNav = await sw.dispatch({ type: 'MAPS_NAVIGATE', payload: { url: 'https://evil.example/' } }, sender);
     assert.strictEqual(badNav.ok, false, 'maps navigation must stay on google.com/maps');
@@ -3160,12 +3160,12 @@ async function run() {
     assert.strictEqual(mid.queryIndex, 1);
     assert.strictEqual(mid.collected, 0, 'per-term counter resets');
     assert.strictEqual(mid.totalCollected, 1);
-    assert.ok(mid.searchUrl.indexOf('q=laser%20clinic') !== -1, 'searchUrl moved to the next term: ' + mid.searchUrl);
+    assert.ok(mid.searchUrl.indexOf('maps/search/laser%20clinic') !== -1, 'searchUrl moved to the next term: ' + mid.searchUrl);
 
     const adv = await sw.dispatch({ type: 'MAPS_ADVANCE' }, sender);
     assert.strictEqual(adv.ok, true);
     assert.strictEqual(adv.next, null, 'the new term starts with an empty queue');
-    assert.ok(adv.searchUrl.indexOf('q=laser%20clinic') !== -1,
+    assert.ok(adv.searchUrl.indexOf('maps/search/laser%20clinic') !== -1,
       'the controller navigates to the next term url: ' + adv.searchUrl);
 
     const dup = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'placeSubmitted', key: 'spa-one-abc' } }, sender);
@@ -3228,7 +3228,7 @@ async function run() {
     assert.strictEqual(ex1.advanced, true, 'exhausted results advance to the next term');
     assert.strictEqual(sw.chrome._store.mapsSearch.query, 'brows');
     const lastNav = sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1];
-    assert.ok(lastNav.url.indexOf('q=brows') !== -1, 'tab moved to the next term: ' + lastNav.url);
+    assert.ok(lastNav.url.indexOf('maps/search/brows') !== -1, 'tab moved to the next term: ' + lastNav.url);
 
     const ex2 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
     assert.strictEqual(ex2.advanced, false, 'the last term exhausts the run');
