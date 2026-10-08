@@ -3466,8 +3466,17 @@ async function run() {
     const harvest = sent.find((m) => m.type === 'MAPS_HARVEST');
     assert.ok(harvest, 'results page must harvest place links: ' + JSON.stringify(sent.map((m) => m.type)));
     assert.strictEqual(harvest.payload.places.length, 2, 'fresh places only');
+    assert.ok(!sent.find((m) => m.type === 'MAPS_NAVIGATE'),
+      'drain first: one harvest batch must not leave the results page');
+
+    for (let i = 0; i < 8; i++) {
+      MS.tick();
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await new Promise((r) => setTimeout(r, 400));
+
     const nav = sent.find((m) => m.type === 'MAPS_NAVIGATE');
-    assert.ok(nav, 'controller must open the first queued place');
+    assert.ok(nav, 'once the feed stops growing the controller opens the first queued place');
     assert.ok(nav.payload.url.indexOf('https://www.google.com/maps/place/') === 0,
       'navigation stays on google maps: ' + nav.payload.url);
 

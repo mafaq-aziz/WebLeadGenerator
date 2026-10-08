@@ -249,13 +249,19 @@
       ctl.stagnation = 0;
       sendMessage({ type: 'MAPS_HARVEST', payload: { places: fresh } }).then(function (res) {
         if (res && res.ok && Array.isArray(res.pending)) mirror.pending = res.pending;
-        if (mirror.active && ctl.granted && mirror.pending.length) takeNext();
+        if (mirror.active && ctl.granted && mirror.pending.length >= 300) takeNext();
       });
       scrollResults();
       return;
     }
     if (mirror.pending.length) {
-      takeNext();
+      ctl.stagnation++;
+      if (ctl.stagnation >= STAGNATION_TICKS) {
+        ctl.stagnation = 0;
+        takeNext();
+        return;
+      }
+      scrollResults();
       return;
     }
     ctl.stagnation++;
