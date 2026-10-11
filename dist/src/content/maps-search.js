@@ -9,6 +9,7 @@
   var PLACE_WAIT_TICKS = 8;
   var STAGNATION_TICKS = 8;
   var OTHER_PAGE_LIMIT = 5;
+  var DUP_TERM_LIMIT = 5;
 
   var mirror = {
     active: false,
@@ -35,6 +36,7 @@
     lastPath: '',
     wait: 0,
     stagnation: 0,
+    dupHits: 0,
     navPending: false,
     submitting: false,
     claimed: false
@@ -93,7 +95,9 @@
         }
         if (!changes.mapsSearch) return;
         var wasActive = mirror.active;
+        var prevQuery = mirror.query;
         Object.assign(mirror, changes.mapsSearch.newValue || {});
+        if (mirror.query !== prevQuery) ctl.dupHits = 0;
         if (mirror.active && !wasActive) {
           ensureRunning();
         } else if (!mirror.active) {
@@ -412,6 +416,13 @@
     });
   }
 
+  function skipTerm(message) {
+    if (!ctl.granted || !mirror.active) return;
+    ctl.dupHits = 0;
+    mirror.active = false;
+    sendMessage({ type: 'MAPS_PROGRESS', payload: { type: 'exhausted', message: message } });
+  }
+
   function onPlace() {
     reportPhase('place');
     var data = extractPlace(root.document);
@@ -422,9 +433,15 @@
     }
     var pageUrl = placeUrl(root.location.href) || root.location.href;
     if (mirror.visitedKeys.indexOf(mapsKeyFor(data.name, pageUrl)) !== -1) {
+      ctl.dupHits++;
+      if (ctl.dupHits >= DUP_TERM_LIMIT) {
+        skipTerm('Same result repeating');
+        return;
+      }
       takeNext();
       return;
     }
+    ctl.dupHits = 0;
     submitPlace(data);
   }
 

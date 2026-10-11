@@ -1355,6 +1355,32 @@
     };
   }
 
+  function advanceMapsTerm(state, message) {
+    var advance = nextMapsTermPatch(state);
+    if (!advance) {
+      return Storage.setMapsSearch({
+        active: false,
+        phase: 'exhausted',
+        message: message || 'No more results'
+      }).then(function () { return { ok: true, finished: false, advanced: false }; });
+    }
+    return Storage.setMapsSearch(advance).then(function (next) {
+      if (Log && Log.isEnabled()) {
+        Log.debug('MapsSearch', 'term exhausted, moving to "' + next.query + '"');
+      }
+      return tabsUpdate(state.tabId, next.searchUrl).then(function (nav) {
+        return { ok: true, finished: false, advanced: true, collected: 0, navigated: nav.ok !== false };
+      });
+    });
+  }
+
+  function mapsSearchSkipTerm() {
+    return Storage.getMapsSearch().then(function (state) {
+      if (!state || !state.active) return { ok: false, reason: 'inactive' };
+      return advanceMapsTerm(state, 'Term skipped manually');
+    });
+  }
+
   function mapsSearchProgress(payload, sender) {
     var type = payload && payload.type;
     return mapsSearchGuard(sender).then(function (g) {
@@ -1394,22 +1420,7 @@
       }
 
       if (type === 'exhausted') {
-        var advance = nextMapsTermPatch(state);
-        if (!advance) {
-          return Storage.setMapsSearch({
-            active: false,
-            phase: 'exhausted',
-            message: String(payload.message || 'No more results')
-          }).then(function () { return { ok: true, finished: false, advanced: false }; });
-        }
-        return Storage.setMapsSearch(advance).then(function (next) {
-          if (Log && Log.isEnabled()) {
-            Log.debug('MapsSearch', 'term exhausted, moving to "' + next.query + '"');
-          }
-          return tabsUpdate(state.tabId, next.searchUrl).then(function (nav) {
-            return { ok: true, finished: false, advanced: true, collected: 0, navigated: nav.ok !== false };
-          });
-        });
+        return advanceMapsTerm(state, payload.message);
       }
 
       return Promise.resolve({ ok: false, reason: 'unknown_type' });
@@ -1490,6 +1501,9 @@
         break;
       case 'MAPS_PROGRESS':
         handled = mapsSearchProgress(message.payload, sender);
+        break;
+      case 'MAPS_SKIP_TERM':
+        handled = mapsSearchSkipTerm();
         break;
       case 'POST_CONTACT_STASH':
         handled = stashPostContact(message.payload);

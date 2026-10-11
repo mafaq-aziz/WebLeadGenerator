@@ -144,6 +144,7 @@
   function render(snapshot, autoSearch, mapsSearch) {
     searchStates.auto = autoSearch || null;
     searchStates.maps = mapsSearch || null;
+    els.btnSkipTerm.hidden = !(mapsSearch && mapsSearch.active);
     renderStats(snapshot.statistics || {});
     renderStatus(snapshot.settings || {});
     renderSettings(snapshot.settings || {});
@@ -199,6 +200,7 @@
     els.autoTarget = $('autoTarget');
     els.btnAutoStart = $('btnAutoStart');
     els.btnAutoStop = $('btnAutoStop');
+    els.btnSkipTerm = $('btnSkipTerm');
     els.autoStatus = $('autoStatus');
     els.autoBar = $('autoBar');
     els.srcInstagram = $('srcInstagram');
@@ -248,6 +250,15 @@
       chrome.runtime.sendMessage({ type: type }, function (res) {
         void chrome.runtime.lastError;
         showToast(res && res.stopped ? 'Search stopped' : 'Could not stop', !res);
+        refresh();
+      });
+    });
+
+    els.btnSkipTerm.addEventListener('click', function () {
+      chrome.runtime.sendMessage({ type: 'MAPS_SKIP_TERM' }, function (res) {
+        void chrome.runtime.lastError;
+        if (res && res.ok) showToast(res.advanced ? 'Skipped to next term' : 'Skipped — last term finished');
+        else showToast('Could not skip term', true);
         refresh();
       });
     });

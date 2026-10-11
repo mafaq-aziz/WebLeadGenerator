@@ -3222,7 +3222,7 @@ async function run() {
     assert.strictEqual(done.phase, 'done');
     assert.strictEqual(done.totalCollected, 2);
 
-    await sw.dispatch({ type: 'MAPS_START', payload: { queries: ['facials', 'brows'], target: 3 } });
+    await sw.dispatch({ type: 'MAPS_START', payload: { queries: ['facials', 'brows', 'lashes'], target: 3 } });
     const ex1 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
     assert.strictEqual(ex1.ok, true);
     assert.strictEqual(ex1.advanced, true, 'exhausted results advance to the next term');
@@ -3230,7 +3230,15 @@ async function run() {
     const lastNav = sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1];
     assert.ok(lastNav.url.indexOf('maps/search/brows') !== -1, 'tab moved to the next term: ' + lastNav.url);
 
-    const ex2 = await sw.dispatch({ type: 'MAPS_PROGRESS', payload: { type: 'exhausted', message: 'No more results' } }, sender);
+    const skip = await sw.dispatch({ type: 'MAPS_SKIP_TERM' }, {});
+    assert.strictEqual(skip.ok, true, 'the popup can skip a term without a tab sender');
+    assert.strictEqual(skip.advanced, true, 'skip advances to the next term');
+    assert.strictEqual(sw.chrome._store.mapsSearch.query, 'lashes');
+    const skipNav = sw.chrome._tabCalls.updated[sw.chrome._tabCalls.updated.length - 1];
+    assert.ok(skipNav.url.indexOf('maps/search/lashes') !== -1, 'tab moved to the skipped-to term: ' + skipNav.url);
+
+    const ex2 = await sw.dispatch({ type: 'MAPS_SKIP_TERM' }, {});
+    assert.strictEqual(ex2.ok, true, 'the popup can skip a term without a tab sender');
     assert.strictEqual(ex2.advanced, false, 'the last term exhausts the run');
     assert.strictEqual(sw.chrome._store.mapsSearch.phase, 'exhausted');
     assert.strictEqual(sw.chrome._store.mapsSearch.active, false);
@@ -3479,6 +3487,119 @@ async function run() {
     assert.ok(nav, 'once the feed stops growing the controller opens the first queued place');
     assert.ok(nav.payload.url.indexOf('https://www.google.com/maps/place/') === 0,
       'navigation stays on google maps: ' + nav.payload.url);
+
+    win.close();
+  });
+
+  await test('maps-search controller: skips a term when the same place repeats 5 times', async () => {
+    const html = `<!DOCTYPE html><html><head><title>Google Maps</title></head><body>
+      <h1>London Liposuction Clinic</h1>
+      <div>Liposuction clinic</div>
+      <button data-item-id="address">Harley St, London</button>
+    </body></html>`;
+    const d = new JSDOM(html, {
+      url: 'https://www.google.com/maps/place/London+Liposuction+Clinic/',
+      pretendToBeVisual: true,
+      runScripts: 'outside-only'
+    });
+    const win = d.window;
+
+    const sent = [];
+    const store = {
+      mapsSearch: {
+        active: true, query: 'Liposuction in UK', queries: ['Liposuction in UK'], queryIndex: 0,
+        target: 5, collected: 0, totalCollected: 0, phase: 'idle', message: '',
+        tabId: 8, searchUrl: 'https://www.google.com/maps/search/Liposuction%20in%20UK',
+        visitedPlaces: [], visitedKeys: [], pending: [], updatedAt: 0
+      },
+      settings: { saveEmail: true, savePhone: true }
+    };
+    const changeListeners = [];
+    win.chrome = {
+      storage: {
+        local: {
+          get(keys, cb) {
+            const out = {};
+            (Array.isArray(keys) ? keys : [keys]).forEach((k) => { if (k in store) out[k] = store[k]; });
+            setTimeout(() => cb(out), 0);
+          },
+          set(items, cb) {
+            Object.assign(store, items);
+            setTimeout(() => {
+              const changes = {};
+              Object.keys(items).forEach((k) => { changes[k] = { newValue: items[k] }; });
+              changeListeners.forEach((fn) => fn(changes, 'local'));
+              if (cb) cb();
+            }, 0);
+          }
+        },
+        onChanged: { addListener(fn) { changeListeners.push(fn); } }
+      },
+      runtime: {
+        lastError: null,
+        sendMessage(message, cb) {
+          sent.push(message);
+          let resp = null;
+          if (message.type === 'MAPS_CLAIM') resp = { granted: true, state: store.mapsSearch };
+          else if (message.type === 'PROCESS_CANDIDATE') resp = { saved: true, reason: 'saved' };
+          else if (message.type === 'MAPS_PROGRESS' && message.payload.type === 'placeSubmitted') {
+            resp = { ok: true, collected: 1, target: 5, finished: false, advanced: false };
+          } else if (message.type === 'MAPS_PROGRESS' && message.payload.type === 'exhausted') {
+            resp = { ok: true, finished: false, advanced: true, collected: 0 };
+          } else if (message.type === 'MAPS_ADVANCE') {
+            const next = (store.mapsSearch.pending || []).shift() || null;
+            resp = { ok: true, next: next, searchUrl: store.mapsSearch.searchUrl };
+          } else resp = { ok: true };
+          setTimeout(() => cb && cb(resp), 0);
+        },
+        onMessage: { addListener() {} }
+      }
+    };
+
+    const files = [
+      'src/shared/logger.js',
+      'src/content/normalizer.js',
+      'src/content/maps-search.js'
+    ];
+    files.forEach((rel) => win.eval(fs.readFileSync(path.join(root, rel), 'utf8')));
+
+    const MS = win.FicinoMapsSearch;
+    assert.ok(MS, 'maps search namespace missing');
+    await new Promise((r) => setTimeout(r, 120));
+    assert.ok(MS.ctl.granted, 'the controller must claim the run');
+    if (MS.ctl.timer) { clearTimeout(MS.ctl.timer); MS.ctl.timer = null; }
+
+    const londonKey = MS.mapsKeyFor('London Liposuction Clinic', 'https://www.google.com/maps/place/London+Liposuction+Clinic/');
+    MS.state.visitedKeys.push(londonKey);
+
+    const tickOnce = async () => { MS.tick(); await new Promise((r) => setTimeout(r, 40)); };
+    const skipMessages = () => sent
+      .filter((m) => m.type === 'MAPS_PROGRESS' && m.payload.type === 'exhausted');
+
+    for (let i = 0; i < 4; i++) await tickOnce();
+    await new Promise((r) => setTimeout(r, 80));
+    assert.strictEqual(skipMessages().length, 0, '4 repeats must not skip the term yet');
+    assert.ok(sent.filter((m) => m.type === 'MAPS_ADVANCE').length >= 4,
+      'each repeat bounces back toward the search url');
+
+    win.document.querySelector('h1').textContent = 'Fresh Clinic';
+    await tickOnce();
+    await new Promise((r) => setTimeout(r, 150));
+    assert.ok(sent.find((m) => m.type === 'PROCESS_CANDIDATE'), 'a fresh place is still extracted');
+
+    win.document.querySelector('h1').textContent = 'London Liposuction Clinic';
+    for (let i = 0; i < 4; i++) await tickOnce();
+    await new Promise((r) => setTimeout(r, 80));
+    assert.strictEqual(skipMessages().length, 0,
+      'the repeat counter must reset when a fresh place arrives');
+
+    await tickOnce();
+    await new Promise((r) => setTimeout(r, 80));
+    const skipped = skipMessages();
+    assert.strictEqual(skipped.length, 1, 'the 5th repeat skips the term');
+    assert.strictEqual(skipped[0].payload.message, 'Same result repeating');
+    assert.strictEqual(MS.state.active, false,
+      'the controller stands down so the worker advances to the next term');
 
     win.close();
   });
