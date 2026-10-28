@@ -242,6 +242,20 @@
     return Object.keys(state.selected).filter(function (id) { return state.selected[id]; });
   }
 
+  function markContacted(leads) {
+    var ids = leads.map(function (lead) { return lead.id; });
+    if (!ids.length) return Promise.resolve(null);
+    return sendMessage({ type: 'MARK_LEADS', payload: { ids: ids, status: 'Contacted' } }).then(function (res) {
+      if (res && res.updated) {
+        state.leads = state.leads.map(function (lead) {
+          return ids.indexOf(lead.id) !== -1 ? Object.assign({}, lead, { status: 'Contacted' }) : lead;
+        });
+        render();
+      }
+      return res;
+    });
+  }
+
   function exportLeads(leads, kind, skipNote) {
     if (!leads.length) {
       showToast('No leads to export');
@@ -251,7 +265,8 @@
       ? CsvExport.exportCsv(leads, undefined, state.templates)
       : ExcelExport.exportExcel(leads, undefined, state.templates);
     if (result.ok) {
-      showToast('Exported ' + result.rows + ' leads' + (skipNote || ''));
+      markContacted(leads);
+      showToast('Exported ' + result.rows + ' leads · marked Contacted' + (skipNote || ''));
       return true;
     }
     showToast('Export failed: ' + result.error, true);
@@ -523,7 +538,10 @@
         var skipped = before - exportable.length;
         if (skipped > 0) skipNote = ' (' + skipped + ' ignored excluded)';
       }
-      exportLeads(exportable, 'xlsx', skipNote);
+      var fresh = exportable.filter(function (lead) { return (lead.status || 'New') !== 'Contacted'; });
+      var already = exportable.length - fresh.length;
+      if (already > 0) skipNote += ' · ' + already + ' already contacted excluded';
+      exportLeads(fresh, 'xlsx', skipNote);
     });
 
     $('btnClearAll').addEventListener('click', function () {

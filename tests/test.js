@@ -759,6 +759,43 @@ async function run() {
     assert.strictEqual(stats.saved, 1);
   });
 
+  await test('MARK_LEADS batch-marks exported leads as Contacted', async () => {
+    const sw = loadServiceWorker();
+    await sw.dispatch({ type: 'CLEAR_LEADS' });
+
+    for (const username of ['shop_one', 'shop_two', 'shop_three']) {
+      const res = await sw.dispatch({
+        type: 'PROCESS_CANDIDATE',
+        payload: {
+          confidence: 88,
+          hasWebsite: false,
+          profile: { instagram_username: username, instagram_name: username, website: '', phone_raw: '+971 50 111 2233' }
+        }
+      });
+      assert.strictEqual(res.saved, true, username + ' must be saved');
+    }
+
+    const before = await sw.dispatch({ type: 'GET_SNAPSHOT' });
+    assert.ok(before.leads.every((l) => l.status === 'New'));
+    const twoIds = before.leads.slice(0, 2).map((l) => l.id);
+
+    const marked = await sw.dispatch({ type: 'MARK_LEADS', payload: { ids: twoIds.concat(['ghost_id']), status: 'Contacted' } });
+    assert.strictEqual(marked.updated, 2, 'only real leads are marked, unknown ids skipped');
+
+    const after = await sw.dispatch({ type: 'GET_SNAPSHOT' });
+    assert.ok(after.leads.filter((l) => l.status === 'Contacted').every((l) => twoIds.indexOf(l.id) !== -1));
+    assert.strictEqual(after.leads.filter((l) => l.status === 'New').length, 1, 'the unmarked lead stays New');
+    const untouched = after.leads.find((l) => l.status === 'New');
+    assert.strictEqual(untouched.instagram_username, 'shop_three');
+
+    const again = await sw.dispatch({ type: 'MARK_LEADS', payload: { ids: twoIds } });
+    assert.strictEqual(again.updated, 2, 're-marking the same leads still reports them');
+    assert.strictEqual(after.leads.length, 3, 'marking never duplicates or drops leads');
+
+    const none = await sw.dispatch({ type: 'MARK_LEADS', payload: { ids: [] } });
+    assert.strictEqual(none.updated, 0, 'empty payload is a no-op');
+  });
+
   await test('DELETE_LEADS and UPDATE_LEAD behave', async () => {
     const sw = loadServiceWorker();
     await sw.dispatch({ type: 'CLEAR_LEADS' });

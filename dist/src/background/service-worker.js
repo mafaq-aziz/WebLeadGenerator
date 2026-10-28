@@ -508,6 +508,26 @@
     });
   }
 
+  function markLeads(payload) {
+    var ids = (payload && payload.ids) || [];
+    var status = String((payload && payload.status) || 'Contacted');
+    if (!ids.length) return Promise.resolve({ updated: 0 });
+    var wanted = Object.create(null);
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i]) wanted[ids[i]] = true;
+    }
+    return mutateLeads(function (leads) {
+      var updated = 0;
+      for (var j = 0; j < leads.length; j++) {
+        if (!wanted[leads[j].id]) continue;
+        leads[j] = Object.assign({}, leads[j], { status: status });
+        updated++;
+      }
+      if (!updated) return { updated: 0 };
+      return Storage.setLeads(leads).then(function () { return { updated: updated }; });
+    });
+  }
+
   function initSettings() {
     return Storage.getSettings().then(function (settings) {
       if (Log) Log.setEnabled(!!settings.debug);
@@ -1447,6 +1467,9 @@
         break;
       case 'UPDATE_LEAD':
         handled = updateLead(message.payload);
+        break;
+      case 'MARK_LEADS':
+        handled = markLeads(message.payload);
         break;
       case 'GET_SNAPSHOT':
         handled = flushStats().then(function () { return Storage.getSnapshot(); });

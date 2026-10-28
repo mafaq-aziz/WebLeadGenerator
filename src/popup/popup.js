@@ -164,6 +164,32 @@
     });
   }
 
+  function exportFresh(leads, kind) {
+    var fresh = (leads || []).filter(function (lead) {
+      return lead.status !== 'Ignore' && lead.status !== 'Contacted';
+    });
+    if (!fresh.length) {
+      showToast((leads && leads.length)
+        ? 'All leads already exported or ignored — nothing new'
+        : 'No leads to export yet');
+      return null;
+    }
+    var result = kind === 'csv' ? CsvExport.exportCsv(fresh) : ExcelExport.exportExcel(fresh);
+    if (!result.ok) {
+      showToast('Export failed: ' + result.error, true);
+      return null;
+    }
+    return new Promise(function (resolve) {
+      var ids = fresh.map(function (lead) { return lead.id; });
+      chrome.runtime.sendMessage({ type: 'MARK_LEADS', payload: { ids: ids, status: 'Contacted' } }, function (res) {
+        void chrome.runtime.lastError;
+        showToast('Exported ' + result.rows + ' leads · marked Contacted');
+        refresh();
+        resolve(res || null);
+      });
+    });
+  }
+
   function saveSettingsPatch(patch) {
     return Storage.saveSettings(patch).then(function (settings) {
       renderStatus(settings);
@@ -277,13 +303,7 @@
     els.btnExcel.addEventListener('click', function () {
       els.btnExcel.disabled = true;
       Storage.getLeads().then(function (leads) {
-        if (!leads.length) {
-          showToast('No leads to export yet');
-          return null;
-        }
-        var result = ExcelExport.exportExcel(leads);
-        if (result.ok) showToast('Exported ' + result.rows + ' leads');
-        else showToast('Export failed: ' + result.error, true);
+        return exportFresh(leads, 'xlsx');
       }).catch(function (err) {
         showToast('Export failed: ' + (err && err.message), true);
       }).then(function () {
@@ -294,13 +314,7 @@
     els.btnCsv.addEventListener('click', function () {
       els.btnCsv.disabled = true;
       Storage.getLeads().then(function (leads) {
-        if (!leads.length) {
-          showToast('No leads to export yet');
-          return null;
-        }
-        var result = CsvExport.exportCsv(leads);
-        if (result.ok) showToast('Exported ' + result.rows + ' leads');
-        else showToast('Export failed: ' + result.error, true);
+        return exportFresh(leads, 'csv');
       }).catch(function (err) {
         showToast('Export failed: ' + (err && err.message), true);
       }).then(function () {
