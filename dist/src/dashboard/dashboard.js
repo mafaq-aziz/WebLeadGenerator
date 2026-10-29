@@ -101,6 +101,9 @@
       case 'phone': return !!(lead.phone_normalized || lead.phone_raw);
       case 'phone_issue': return !!lead.phone_issue;
       case 'email': return !!lead.email;
+      case 'new': return (lead.status || 'New') === 'New';
+      case 'reviewed': return lead.status === 'Reviewed';
+      case 'contacted': return lead.status === 'Contacted';
       case 'ignored': return lead.status === 'Ignore';
       default: return true;
     }

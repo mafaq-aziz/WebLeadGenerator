@@ -305,8 +305,9 @@ driven tab and start the search again.
 
 ### Dashboard
 
-- Search and filter leads (including the *Influencers (ignored)* and *Bad number* chips),
-  edit status/notes — the name column is **Instagram / Maps**: `@username` links
+- Search and filter leads (confidence, phone, email, and status chips — *New*,
+  *Reviewed*, *Contacted*, *Ignored* — plus *Bad number*), edit status/notes — the name
+  column is **Instagram / Maps**: `@username` links
   for Instagram leads, **Maps ↗** (the place page) for Google Maps leads
 - **Search term** dropdown: shows every term that produced leads with per-term counts
   (*No search term* collects passive/manual finds) — selecting one filters the table;
