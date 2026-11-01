@@ -69,6 +69,15 @@
     return url;
   }
 
+  function waAppUrl(lead, text) {
+    var phone = waPhoneDigits(lead);
+    if (!phone) return '';
+    var message = text === undefined || text === null ? '' : String(text);
+    var url = 'whatsapp://send?phone=' + phone;
+    if (message) url += '&text=' + encodeURIComponent(message);
+    return url;
+  }
+
   function igSendUrl(lead) {
     var l = lead || {};
     var username = String(l.instagram_username || '').trim().replace(/^@/, '');
@@ -91,6 +100,7 @@
     render: render,
     waPhoneDigits: waPhoneDigits,
     waSendUrl: waSendUrl,
+    waAppUrl: waAppUrl,
     igSendUrl: igSendUrl,
     isIgnored: isIgnored,
     exportable: exportable

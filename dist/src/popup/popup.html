@@ -108,6 +108,24 @@
     </label>
 
     <label class="toggle">
+      <span>WhatsApp: open chats in desktop app</span>
+      <input type="checkbox" id="toggleWaApp" />
+      <span class="toggle-ui"></span>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Min seconds between WhatsApp chats</span>
+      <input type="number" id="inputWaDelay" min="0" max="600" step="5" value="60" />
+    </label>
+
+    <label class="field">
+      <span class="field-label">WhatsApp chats per day (spam cap)</span>
+      <input type="number" id="inputWaDailyCap" min="1" max="500" step="1" value="50" />
+    </label>
+
+    <div class="status-hint" id="waPaceHint"></div>
+
+    <label class="toggle">
       <span>Debug logging</span>
       <input type="checkbox" id="toggleDebug" />
       <span class="toggle-ui"></span>

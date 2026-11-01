@@ -16,7 +16,12 @@
     autoSearchSource: 'instagram',
     defaultCountryCode: '',
     phoneCleanupVersion: 0,
-    permitExcludeVersion: 0
+    permitExcludeVersion: 0,
+    waApp: false,
+    waMinDelaySec: 60,
+    waDailyCap: 50,
+    waOpenedDate: '',
+    waOpenedCount: 0
   };
 
   var DEFAULT_STATS = {

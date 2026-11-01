@@ -13,7 +13,16 @@
   function delay() {
     if (typeof paceMs === 'number') return paceMs;
     var wa = !!(active && active.channel === 'whatsapp');
-    return (wa ? 13000 : 5000) + Math.floor(Math.random() * (wa ? 11000 : 3000));
+    var base = (wa ? 13000 : 5000) + Math.floor(Math.random() * (wa ? 11000 : 3000));
+    if (wa && active.waMinDelayMs > base) {
+      return active.waMinDelayMs + Math.floor(Math.random() * (active.waMinDelayMs * 0.4));
+    }
+    return base;
+  }
+
+  function dayKey() {
+    var d = new Date();
+    return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
   }
 
   function tabsApi() {
@@ -124,6 +133,11 @@
   function openNext() {
     var a = active;
     if (!a) return;
+    if (a.channel === 'whatsapp' && a.waOpenedCount >= a.waDailyCap) {
+      a.capReached = true;
+      finish();
+      return;
+    }
     if (a.index >= a.items.length) {
       finish();
       return;
@@ -143,6 +157,15 @@
       }
       active.tabIds.push(tabId);
       var wa = active.channel === 'whatsapp';
+      if (wa) {
+        active.waOpenedCount++;
+        Storage.saveSettings({ waOpenedDate: active.waOpenedDate, waOpenedCount: active.waOpenedCount })
+          .catch(function () { /* pacing counters are best-effort */ });
+      }
+      if (wa && active.waApp) {
+        finishItem(item, null, tabId);
+        return;
+      }
       var captured = { tabId: tabId, item: item, timer: null, wa: wa };
       captured.timer = setTimeout(function () {
         if (active && active.pending === captured) finishItem(item, 'timeout', tabId);
@@ -157,6 +180,10 @@
     if (!a) return;
     var summary = a.prepared.length + ' draft(s) ready' +
       (a.failed.length ? ', ' + a.failed.length + ' failed' : '');
+    if (a.capReached) {
+      summary = 'Daily WhatsApp cap reached (' + a.waDailyCap + ') — ' +
+        a.waOpenedCount + ' chat(s) opened today, resumes tomorrow';
+    }
     var tabs = tabsApi();
     if (a.tabIds.length && tabs && tabs.update) {
       tabs.update(a.tabIds[0], { active: true });
@@ -195,6 +222,15 @@
       var leads = parts[0];
       var outreach = parts[1];
       var settings = parts[2];
+      var today = dayKey();
+      active.waApp = !!settings.waApp;
+      active.waMinDelayMs = Math.max(0, Number(settings.waMinDelaySec) || 0) * 1000;
+      active.waDailyCap = Math.max(1, Number(settings.waDailyCap) || 50);
+      active.waOpenedDate = today;
+      active.waOpenedCount = (settings.waOpenedDate === today && Number(settings.waOpenedCount) > 0)
+        ? Number(settings.waOpenedCount)
+        : 0;
+      active.capReached = false;
       var byId = Object.create(null);
       leads.forEach(function (lead) { if (lead && lead.id) byId[lead.id] = lead; });
 
@@ -244,7 +280,9 @@
             skipped.push({ id: id, username: username, reason: reason });
             return;
           }
-          url = T ? T.waSendUrl({ phone_normalized: attributed.normalized }, text) : '';
+          url = (settings.waApp && T && T.waAppUrl)
+            ? T.waAppUrl({ phone_normalized: attributed.normalized }, text)
+            : (T ? T.waSendUrl({ phone_normalized: attributed.normalized }, text) : '');
           if (!url) {
             skipped.push({ id: id, username: username, reason: 'no_phone' });
             return;

@@ -116,6 +116,16 @@ for that lead. Instagram messages are typed and sent automatically (Instagram di
 unsent composer text); WhatsApp tabs are pre-filled for you to review and send
 yourself — the extension never sends anything on WhatsApp.
 
+For WhatsApp there's also a **desktop-app hand-off** (popup → *WhatsApp: open chats
+in desktop app*): chats open in the WhatsApp Desktop application via `whatsapp://`
+deep links with the message pre-filled, instead of WhatsApp Web in a browser tab
+(first use asks you to allow the protocol once — tick *Always allow*). To keep your
+number safe from WhatsApp's spam limits, the popup also exposes **Min seconds between
+WhatsApp chats** (default 60) and **WhatsApp chats per day** (default 50 — the runner
+stops at the cap with a "resumes tomorrow" message, and the counter resets daily;
+today's progress is shown in the popup). These guard against bulk-send patterns that
+get accounts restricted — they don't change what you send, only the pacing.
+
 1. Edit the **WhatsApp message** and **Instagram message** templates and press
    **Save messages**. Placeholders: `{name}` `{username}` `{category}` `{location}`
    `{followers}` `{phone}` — bracket style works too and is case-insensitive
@@ -351,7 +361,7 @@ driven tab and start the search again.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 97 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 98 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -477,7 +487,7 @@ src/
                                    panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-  tests/                            97-test suite
+  tests/                            98-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to

@@ -687,6 +687,11 @@ async function main() {
     console.log('  IG message sent automatically with Enter (keydown x' + enterCount + ', composer cleared)');
 
     console.log('  outreach: preparing WhatsApp draft for @a1_shop...');
+    await cdp.send('Runtime.evaluate', {
+      expression: 'chrome.storage.local.get(["settings"]).then(function (s) { var st = Object.assign({}, s.settings || {}); st.waMinDelaySec = 0; return chrome.storage.local.set({ settings: st }); })',
+      awaitPromise: true,
+      returnByValue: true
+    }, swSession);
     const waStart = JSON.parse(await fromDashboard(
       'new Promise(function (resolve) {' +
       ' chrome.runtime.sendMessage({ type: "OUTREACH_START", payload: { channel: "whatsapp", ids: ["' + a1.id + '"] } },' +

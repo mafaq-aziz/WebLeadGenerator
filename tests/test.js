@@ -2684,6 +2684,49 @@ async function run() {
     assert.strictEqual(sw.chrome._tabCalls.sent.length, 0, 'WhatsApp drafts use deep links only, no injection');
   });
 
+  await test('outreach: WhatsApp desktop app hand-off, daily cap and date reset', async () => {
+    const sw = loadServiceWorker();
+    globalThis.FicinoOutreach.setPace(1);
+    await sw.dispatch({ type: 'CLEAR_LEADS' });
+
+    const ids = [];
+    for (const username of ['wa_one', 'wa_two', 'wa_three']) {
+      const res = await sw.dispatch({
+        type: 'PROCESS_CANDIDATE',
+        payload: { confidence: 85, hasWebsite: false, profile: { instagram_username: username, instagram_name: username, website: '', phone_raw: '+971 50 111 2233', category: 'Salon' } }
+      });
+      ids.push(res.id);
+    }
+
+    sw.chrome._store.settings.waApp = true;
+    sw.chrome._store.settings.waDailyCap = 2;
+    sw.chrome._store.settings.waMinDelaySec = 0;
+    sw.chrome._store.settings.waOpenedDate = '';
+    sw.chrome._store.settings.waOpenedCount = 0;
+
+    const started = await sw.dispatch({ type: 'OUTREACH_START', payload: { channel: 'whatsapp', ids: ids } });
+    assert.strictEqual(started.started, true);
+    assert.strictEqual(started.total, 3, 'all three leads are eligible');
+
+    await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'done', 3000);
+    const outreach = sw.chrome._store.outreach;
+    assert.strictEqual(outreach.prepared.length, 2, 'daily cap stops the batch at 2: ' + JSON.stringify(outreach));
+    assert.ok(outreach.message.indexOf('cap reached (2)') !== -1, 'cap message: ' + outreach.message);
+    const urls = sw.chrome._tabCalls.created.map((t) => t.url);
+    assert.ok(urls.every((u) => u.indexOf('whatsapp://send?phone=') === 0),
+      'desktop app hand-off uses the whatsapp:// scheme: ' + JSON.stringify(urls));
+    assert.strictEqual(sw.chrome._store.settings.waOpenedCount, 2, 'the daily counter is persisted');
+    assert.ok(/\d{4}-\d{1,2}-\d{1,2}/.test(sw.chrome._store.settings.waOpenedDate), 'the counter is stamped with today');
+
+    sw.chrome._store.settings.waOpenedDate = '2020-1-1';
+    sw.chrome._store.settings.waOpenedCount = 9;
+    const again = await sw.dispatch({ type: 'OUTREACH_START', payload: { channel: 'whatsapp', ids: [ids[2]] } });
+    assert.strictEqual(again.started, true);
+    await waitFor(() => sw.chrome._store.outreach && sw.chrome._store.outreach.state === 'done'
+      && (sw.chrome._store.outreach.prepared || []).length === 1, 3000);
+    assert.strictEqual(sw.chrome._store.settings.waOpenedCount, 1, 'a new day resets the cap counter');
+  });
+
   await test('outreach: Instagram drafts wait for the DM page, then type and send', async () => {
     const sw = loadServiceWorker();
     globalThis.FicinoOutreach.setPace(1);

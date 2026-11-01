@@ -57,6 +57,18 @@
     els.toggleSavePhone.checked = settings.savePhone !== false;
     els.inputCountryCode.value = settings.defaultCountryCode || '';
     els.toggleDebug.checked = !!settings.debug;
+    els.toggleWaApp.checked = !!settings.waApp;
+    var wd = parseInt(settings.waMinDelaySec, 10);
+    if (!isFinite(wd) || wd < 0 || wd > 600) wd = 60;
+    if (document.activeElement !== els.inputWaDelay) els.inputWaDelay.value = String(wd);
+    var wc = parseInt(settings.waDailyCap, 10);
+    if (!isFinite(wc) || wc < 1 || wc > 500) wc = 50;
+    if (document.activeElement !== els.inputWaDailyCap) els.inputWaDailyCap.value = String(wc);
+    var d = new Date();
+    var today = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    var opened = settings.waOpenedDate === today ? Number(settings.waOpenedCount) || 0 : 0;
+    els.waPaceHint.textContent = 'WhatsApp chats opened today: ' + opened + ' / ' + wc +
+      (settings.waApp ? ' · desktop app' : ' · web');
     activeSource = settings.autoSearchSource === 'maps' ? 'maps' : 'instagram';
     updateSourceUI();
   }
@@ -221,6 +233,10 @@
     els.toggleSaveEmail = $('toggleSaveEmail');
     els.toggleSavePhone = $('toggleSavePhone');
     els.inputCountryCode = $('inputCountryCode');
+    els.toggleWaApp = $('toggleWaApp');
+    els.inputWaDelay = $('inputWaDelay');
+    els.inputWaDailyCap = $('inputWaDailyCap');
+    els.waPaceHint = $('waPaceHint');
     els.toggleDebug = $('toggleDebug');
     els.autoQuery = $('autoQuery');
     els.autoTarget = $('autoTarget');
@@ -369,6 +385,27 @@
           ? 'Country code saved — run "Fix numbers" in the dashboard to re-apply'
           : 'Country code cleared');
       });
+    });
+    els.toggleWaApp.addEventListener('change', function () {
+      saveSettingsPatch({ waApp: els.toggleWaApp.checked }).then(function () {
+        showToast(els.toggleWaApp.checked
+          ? 'WhatsApp chats will open in the desktop app'
+          : 'WhatsApp chats will open in the browser (WhatsApp Web)');
+      });
+    });
+    els.inputWaDelay.addEventListener('change', function () {
+      var v = parseInt(els.inputWaDelay.value, 10);
+      if (!isFinite(v) || v < 0) v = 0;
+      if (v > 600) v = 600;
+      els.inputWaDelay.value = String(v);
+      saveSettingsPatch({ waMinDelaySec: v });
+    });
+    els.inputWaDailyCap.addEventListener('change', function () {
+      var v = parseInt(els.inputWaDailyCap.value, 10);
+      if (!isFinite(v) || v < 1) v = 1;
+      if (v > 500) v = 500;
+      els.inputWaDailyCap.value = String(v);
+      saveSettingsPatch({ waDailyCap: v });
     });
     els.toggleDebug.addEventListener('change', function () {
       saveSettingsPatch({ debug: els.toggleDebug.checked }).then(function () {
