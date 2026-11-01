@@ -316,7 +316,8 @@ driven tab and start the search again.
 ### Dashboard
 
 - Search and filter leads (confidence, phone, email, and status chips — *New*,
-  *Reviewed*, *Contacted*, *Ignored* — plus *Bad number*), edit status/notes — the name
+  *Reviewed*, *Contacted*, *Appointed* / *Not appointed*, *Ignored* — plus *Bad number*),
+  edit status/notes — the name
   column is **Instagram / Maps**: `@username` links
   for Instagram leads, **Maps ↗** (the place page) for Google Maps leads
 - **Search term** dropdown: shows every term that produced leads with per-term counts
@@ -361,7 +362,7 @@ driven tab and start the search again.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 98 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 99 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -487,7 +488,7 @@ src/
                                    panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-  tests/                            98-test suite
+  tests/                            99-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to

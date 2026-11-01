@@ -7,7 +7,7 @@
   var CsvExport = window.FicinoCsvExport;
   var Templates = window.FicinoTemplates;
   var STATUS_VALUES = (window.FicinoSelectors && window.FicinoSelectors.STATUS_VALUES) ||
-    ['New', 'Reviewed', 'Contacted', 'Ignore'];
+    ['New', 'Reviewed', 'Contacted', 'Appointed', 'Ignore'];
 
   var state = {
     leads: [],
@@ -104,6 +104,8 @@
       case 'new': return (lead.status || 'New') === 'New';
       case 'reviewed': return lead.status === 'Reviewed';
       case 'contacted': return lead.status === 'Contacted';
+      case 'appointed': return lead.status === 'Appointed';
+      case 'not_appointed': return lead.status !== 'Appointed';
       case 'ignored': return lead.status === 'Ignore';
       default: return true;
     }
@@ -541,7 +543,9 @@
         var skipped = before - exportable.length;
         if (skipped > 0) skipNote = ' (' + skipped + ' ignored excluded)';
       }
-      var fresh = exportable.filter(function (lead) { return (lead.status || 'New') !== 'Contacted'; });
+      var fresh = exportable.filter(function (lead) {
+        return (lead.status || 'New') !== 'Contacted' && (lead.status || 'New') !== 'Appointed';
+      });
       var already = exportable.length - fresh.length;
       if (already > 0) skipNote += ' · ' + already + ' already contacted excluded';
       exportLeads(fresh, 'xlsx', skipNote);

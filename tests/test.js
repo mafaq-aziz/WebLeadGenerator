@@ -796,6 +796,42 @@ async function run() {
     assert.strictEqual(none.updated, 0, 'empty payload is a no-op');
   });
 
+  await test('Appointed status: in status list, survives merges, marks persist', async () => {
+    const sw = loadServiceWorker();
+    assert.ok(globalThis.FicinoSelectors.STATUS_VALUES.indexOf('Appointed') !== -1,
+      'Appointed must be a selectable status');
+    assert.ok(globalThis.FicinoSelectors.STATUS_VALUES.indexOf('Contacted') !== -1,
+      'existing statuses stay intact');
+    await sw.dispatch({ type: 'CLEAR_LEADS' });
+
+    const mk = (id, username, extra) => Object.assign({
+      id, instagram_username: username,
+      instagram_url: 'https://www.instagram.com/' + username + '/',
+      instagram_name: username, bio: '', category: '', email: '', website: '', location: '',
+      phone_raw: '', phone_normalized: '', followers: '', status: 'New', notes: '',
+      confidence: 50, search_term: '', date_found: '2026-01-02 10:00'
+    }, extra || {});
+    sw.chrome._store.leads = [
+      mk('ap_new', 'new_one'),
+      mk('ap_done', 'appointed_one', { status: 'Appointed' })
+    ];
+
+    const marked = await sw.dispatch({ type: 'MARK_LEADS', payload: { ids: ['ap_new'], status: 'Appointed' } });
+    assert.strictEqual(marked.updated, 1, 'Appointed marks apply like any status');
+    const snap = await sw.dispatch({ type: 'GET_SNAPSHOT' });
+    assert.ok(snap.leads.every((l) => l.status === 'Appointed'));
+
+    const merged = await sw.dispatch({ type: 'MERGE_LEADS', payload: { ids: ['ap_new', 'ap_done'] } });
+    assert.strictEqual(merged.ok, true);
+    const survivor = sw.chrome._store.leads.find((l) => l.id === 'ap_new');
+    assert.strictEqual(survivor.status, 'Appointed', 'Appointed outranks New on merge');
+
+    const backToNew = await sw.dispatch({ type: 'UPDATE_LEAD', payload: { id: 'ap_new', status: 'New' } });
+    assert.strictEqual(backToNew.updated, true, 'Appointed leads can be moved back manually');
+    const reverted = sw.chrome._store.leads.find((l) => l.id === 'ap_new');
+    assert.strictEqual(reverted.status, 'New');
+  });
+
   await test('DELETE_LEADS and UPDATE_LEAD behave', async () => {
     const sw = loadServiceWorker();
     await sw.dispatch({ type: 'CLEAR_LEADS' });

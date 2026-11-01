@@ -178,7 +178,7 @@
 
   function exportFresh(leads, kind) {
     var fresh = (leads || []).filter(function (lead) {
-      return lead.status !== 'Ignore' && lead.status !== 'Contacted';
+      return lead.status !== 'Ignore' && lead.status !== 'Contacted' && lead.status !== 'Appointed';
     });
     if (!fresh.length) {
       showToast((leads && leads.length)

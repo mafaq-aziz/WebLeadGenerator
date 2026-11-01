@@ -425,7 +425,7 @@
       base.website_found = !!base.website;
       base.website_not_found_on_instagram = !base.website;
 
-      var statusRank = { Contacted: 3, Reviewed: 2, Ignore: 1, New: 0 };
+      var statusRank = { Appointed: 4, Contacted: 3, Reviewed: 2, Ignore: 1, New: 0 };
       if (!base.status || base.status === 'New') {
         group.forEach(function (lead) {
           var rank = statusRank[lead.status] || 0;

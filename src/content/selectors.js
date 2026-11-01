@@ -54,7 +54,7 @@
     'contact info', 'phone number', 'email address', 'address', 'website'
   ];
 
-  var STATUS_VALUES = ['New', 'Reviewed', 'Contacted', 'Ignore'];
+  var STATUS_VALUES = ['New', 'Reviewed', 'Contacted', 'Appointed', 'Ignore'];
 
   function isReservedSegment(segment) {
     return RESERVED_SEGMENTS.indexOf(String(segment || '').toLowerCase()) !== -1;
