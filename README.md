@@ -89,14 +89,14 @@ what `npm run smoke` uses).
   agent), a bio marker **plus** a blogger-style username (`blog`, `vlog`, `daily`,
   `wanderlust`, …) or **100k+ followers**, or **500k+ followers** on its own.
 - Matches are saved as status **`Ignore`** with `influencer: true` and the reasons —
-  nothing is ever deleted, and you can flip any lead back to `New` in the status
-  dropdown at any time.
+  nothing is ever deleted, and you can remove the `Ignore` tag (× in the Tags
+  column) to bring a lead back to `New` at any time.
 - Ignored leads **do not count** toward the Auto Search target, and **Export all**
   skips them (the toast tells you how many were excluded). The *Influencers (ignored)*
   filter chip shows them; exporting a selection exports exactly what you selected.
 - **Flag influencers** (top bar) re-scans every stored lead: new matches are flagged,
-  stale flags are restored to `New`, and `Contacted`/`Reviewed` statuses are never
-  touched.
+  stale flags are restored to `New`, and leads already carrying *Contacted*,
+  *Reviewed* or *Appointed* tags are never touched.
 - Leads whose bio carries a **permit/trade-license number** are excluded the same
   way, instantly: saved as `Ignore` with `influencer: true` and the reason
   `permit_number`, existing data is excluded once automatically when the dashboard
@@ -317,7 +317,10 @@ driven tab and start the search again.
 
 - Search and filter leads (confidence, phone, email, and status chips — *New*,
   *Reviewed*, *Contacted*, *Appointed* / *Not appointed*, *Ignored* — plus *Bad number*),
-  edit status/notes — the name
+  and stack **several tags on one lead** in the Tags column: `+ Add` picks a tag,
+  × removes it, so a lead can be *Contacted* **and** *Appointed* at once (the
+  strongest tag is the primary status that rules and exports report; an *Ignore*
+  tag always keeps blocking) — the name
   column is **Instagram / Maps**: `@username` links
   for Instagram leads, **Maps ↗** (the place page) for Google Maps leads
 - **Search term** dropdown: shows every term that produced leads with per-term counts
@@ -325,7 +328,7 @@ driven tab and start the search again.
   each row carries its term as a badge, and the term is also part of the search box
 - **Merge selected**: with two or more rows checked, combines them into the
   first-checked lead (longest name/bio/category/location, best phone, first
-  email/website, highest confidence, union of search terms and notes with a
+  email/website, highest confidence, union of search terms, notes and tags with a
   `Merged from @…` provenance line) and removes the others — confirm first
 - **Flag influencers** re-scan for creator-style profiles
 - **Fix numbers** verifies every stored phone and auto-corrects numbers that
@@ -362,7 +365,7 @@ driven tab and start the search again.
 
 ```
 npm run check    # syntax + MV3 manifest validation + no-remote-code scan
-npm run test     # 99 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
+npm run test     # 100 unit/integration tests (jsdom, mocked chrome.*, real SW handlers)
 npm run build    # copy source into dist/ and verify manifest references
 npm run verify   # check + test + build
 npm run smoke    # real headless Chrome end-to-end test
@@ -488,7 +491,7 @@ src/
                                    panel with templates, beep and flag-influencers
 lib/xlsx/xlsx.full.min.js         vendored SheetJS (local, no CDN)
 scripts/                          check, build, icons, smoke
-  tests/                            99-test suite
+  tests/                            100-test suite
 ```
 
 Content scripts never write storage directly: they extract a candidate and send it to

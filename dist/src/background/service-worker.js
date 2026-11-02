@@ -13,6 +13,7 @@
   var Log = root.FicinoLog;
   var Storage = root.FicinoStorage;
   var N = root.FicinoNormalizer;
+  var Templates = root.FicinoTemplates;
   var Influencer = root.FicinoInfluencerDetector;
   var Outreach = root.FicinoOutreach;
 
@@ -289,8 +290,8 @@
             queueStat('duplicates', 1);
             leads[index] = verifyLead(mergeLead(leads[index], profile), settings, postContacts);
           if (exclude) {
-            var current = leads[index].status;
-            if (!current || current === 'New') {
+            if (!Templates.tagsOf(leads[index]).length) {
+              leads[index].tags = ['Ignore'];
               leads[index].status = 'Ignore';
               leads[index].influencer = true;
               leads[index].influencer_reasons = excludeReasons;
@@ -425,15 +426,14 @@
       base.website_found = !!base.website;
       base.website_not_found_on_instagram = !base.website;
 
-      var statusRank = { Appointed: 4, Contacted: 3, Reviewed: 2, Ignore: 1, New: 0 };
-      if (!base.status || base.status === 'New') {
-        group.forEach(function (lead) {
-          var rank = statusRank[lead.status] || 0;
-          var best = statusRank[base.status] || 0;
-          if (rank > best && rank > 0) base.status = lead.status;
+      var mergedTags = [];
+      group.forEach(function (lead) {
+        Templates.tagsOf(lead).forEach(function (tag) {
+          if (mergedTags.indexOf(tag) === -1) mergedTags.push(tag);
         });
-      }
-      if (!base.status) base.status = 'New';
+      });
+      base.tags = mergedTags;
+      base.status = Templates.primaryStatus(mergedTags);
 
       base.influencer = group.some(function (lead) { return !!lead.influencer; });
       var reasons = [];
@@ -497,7 +497,14 @@
       }
       if (index < 0) return { updated: false };
       var lead = Object.assign({}, leads[index]);
-      if (patch.status !== undefined) lead.status = patch.status;
+      if (patch.status !== undefined) {
+        lead.status = String(patch.status);
+        lead.tags = Templates.normalizeTags(lead.status === 'New' ? [] : [lead.status]);
+      }
+      if (patch.tags !== undefined) {
+        lead.tags = Templates.normalizeTags(patch.tags);
+        lead.status = Templates.primaryStatus(lead.tags);
+      }
       if (patch.notes !== undefined) lead.notes = patch.notes;
       if (patch.delete === true) {
         leads.splice(index, 1);
@@ -518,9 +525,17 @@
     }
     return mutateLeads(function (leads) {
       var updated = 0;
+      var known = Templates.TAG_VALUES.indexOf(status) !== -1;
       for (var j = 0; j < leads.length; j++) {
         if (!wanted[leads[j].id]) continue;
-        leads[j] = Object.assign({}, leads[j], { status: status });
+        if (known) {
+          var tags = status === 'New'
+            ? []
+            : Templates.normalizeTags(Templates.tagsOf(leads[j]).concat([status]));
+          leads[j] = Object.assign({}, leads[j], { tags: tags, status: Templates.primaryStatus(tags) });
+        } else {
+          leads[j] = Object.assign({}, leads[j], { status: status });
+        }
         updated++;
       }
       if (!updated) return { updated: 0 };
@@ -836,7 +851,7 @@
     return Storage.getLeads().then(function (leads) {
       var collected = state.collected;
       var index = findLeadIndex(leads, username);
-      var qualifies = index >= 0 && leads[index].status !== 'Ignore';
+      var qualifies = index >= 0 && !Templates.isIgnored(leads[index]);
       var added = qualifies && isNewVisit ? 1 : 0;
       collected += added;
       var total = (Number(state.totalCollected) || 0) + added;
@@ -888,13 +903,16 @@
             lead.influencer_reasons = reasons;
             changed = true;
           }
-          if (!lead.status || lead.status === 'New') {
+          if (!Templates.tagsOf(lead).length) {
+            lead.tags = ['Ignore'];
             lead.status = 'Ignore';
             changed = true;
           }
           if (changed) flagged += 1;
-        } else if (lead.influencer && lead.status === 'Ignore') {
-          lead.status = 'New';
+        } else if (lead.influencer && Templates.isIgnored(lead)) {
+          var keptTags = Templates.tagsOf(lead).filter(function (tag) { return tag !== 'Ignore'; });
+          lead.tags = keptTags;
+          lead.status = Templates.primaryStatus(keptTags);
           lead.influencer = false;
           lead.influencer_reasons = [];
           restored += 1;
@@ -928,7 +946,8 @@
             lead.influencer_reasons = (lead.influencer_reasons || []).concat(['permit_number']);
             changed = true;
           }
-          if (!lead.status || lead.status === 'New') {
+          if (!Templates.tagsOf(lead).length) {
+            lead.tags = ['Ignore'];
             lead.status = 'Ignore';
             changed = true;
             excluded += 1;

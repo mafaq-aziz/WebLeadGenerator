@@ -832,6 +832,71 @@ async function run() {
     assert.strictEqual(reverted.status, 'New');
   });
 
+  await test('multi-tag status: several tags per lead, derived primary, membership checks', async () => {
+    const T = globalThis.FicinoTemplates;
+    assert.deepStrictEqual(T.TAG_VALUES, globalThis.FicinoSelectors.STATUS_VALUES,
+      'the tag list must stay in sync with the selectable statuses');
+    assert.deepStrictEqual(T.normalizeTags(['Contacted', 'Contacted', 'New', 'Bogus']), ['Contacted'],
+      'dedupe, drop New and drop unknown tags');
+    assert.deepStrictEqual(T.normalizeTags('Appointed'), ['Appointed'], 'a bare string is accepted');
+    assert.deepStrictEqual(T.tagsOf({ status: 'Reviewed' }), ['Reviewed'], 'legacy single-status leads read as one tag');
+    assert.deepStrictEqual(T.tagsOf({ status: 'New' }), [], 'New means no tags');
+    assert.strictEqual(T.primaryStatus(['Contacted', 'Appointed']), 'Appointed', 'highest rank becomes the primary');
+    assert.strictEqual(T.primaryStatus([]), 'New', 'no tags means New');
+
+    const sw = loadServiceWorker();
+    await sw.dispatch({ type: 'CLEAR_LEADS' });
+    const saved = await sw.dispatch({
+      type: 'PROCESS_CANDIDATE',
+      payload: { confidence: 80, hasWebsite: false, profile: { instagram_username: 'tagged_shop', website: '' } }
+    });
+    const id = saved.id;
+
+    const added = await sw.dispatch({ type: 'UPDATE_LEAD', payload: { id, tags: ['Contacted', 'Appointed'] } });
+    assert.strictEqual(added.updated, true);
+    let lead = sw.chrome._store.leads[0];
+    assert.deepStrictEqual(lead.tags, ['Contacted', 'Appointed'], 'tags are stored on the lead');
+    assert.strictEqual(lead.status, 'Appointed', 'primary status follows the strongest tag');
+    assert.ok(!T.isIgnored(lead));
+
+    const removed = await sw.dispatch({ type: 'UPDATE_LEAD', payload: { id, tags: ['Appointed'] } });
+    assert.strictEqual(removed.updated, true);
+    lead = sw.chrome._store.leads[0];
+    assert.deepStrictEqual(lead.tags, ['Appointed'], 'removing a tag sticks');
+    assert.strictEqual(lead.status, 'Appointed');
+
+    const marked = await sw.dispatch({ type: 'MARK_LEADS', payload: { ids: [id], status: 'Contacted' } });
+    assert.strictEqual(marked.updated, 1, 'marking adds a tag instead of replacing');
+    lead = sw.chrome._store.leads[0];
+    assert.deepStrictEqual(lead.tags, ['Appointed', 'Contacted'], 'existing tags survive a mark');
+    assert.strictEqual(lead.status, 'Appointed');
+
+    const ignored = await sw.dispatch({ type: 'UPDATE_LEAD', payload: { id, tags: ['Ignore', 'Reviewed'] } });
+    assert.strictEqual(ignored.updated, true);
+    lead = sw.chrome._store.leads[0];
+    assert.strictEqual(lead.status, 'Reviewed', 'primary status is the strongest tag');
+    assert.ok(T.isIgnored(lead), 'the Ignore tag keeps blocking even when it is not primary');
+    assert.strictEqual(T.exportable([lead]).length, 0, 'Ignore-tagged leads stay out of exports');
+
+    const unignored = await sw.dispatch({ type: 'UPDATE_LEAD', payload: { id, tags: ['Reviewed'] } });
+    assert.strictEqual(unignored.updated, true);
+    lead = sw.chrome._store.leads[0];
+    assert.ok(!T.isIgnored(lead), 'dropping the Ignore tag unblocks the lead');
+    assert.strictEqual(T.exportable([lead]).length, 1);
+
+    sw.chrome._store.leads.push(Object.assign({}, lead, {
+      id: 'tag_dup', instagram_username: 'tagged_dup', status: 'New', tags: ['Contacted'], notes: ''
+    }));
+    const merged = await sw.dispatch({ type: 'MERGE_LEADS', payload: { ids: [id, 'tag_dup'] } });
+    assert.strictEqual(merged.ok, true, JSON.stringify(merged));
+    lead = sw.chrome._store.leads.find((l) => l.id === id);
+    assert.deepStrictEqual(lead.tags, ['Reviewed', 'Contacted'], 'merges union the tag sets');
+    assert.strictEqual(lead.status, 'Contacted', 'the union re-derives the primary status');
+
+    assert.strictEqual(E.leadValue(lead, 'status', undefined), 'Reviewed / Contacted',
+      'exports list every tag in the Status column');
+  });
+
   await test('DELETE_LEADS and UPDATE_LEAD behave', async () => {
     const sw = loadServiceWorker();
     await sw.dispatch({ type: 'CLEAR_LEADS' });

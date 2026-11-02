@@ -252,7 +252,7 @@
           return;
         }
         var username = String(lead.instagram_username || '').replace(/^@/, '');
-        if (lead.status === 'Ignore') {
+        if (T ? T.isIgnored(lead) : lead.status === 'Ignore') {
           skipped.push({ id: id, username: username, reason: 'ignored' });
           return;
         }

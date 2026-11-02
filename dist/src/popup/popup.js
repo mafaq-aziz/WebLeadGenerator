@@ -3,6 +3,7 @@
 
   var Log = window.FicinoLog;
   var Storage = window.FicinoStorage;
+  var Templates = window.FicinoTemplates;
   var ExcelExport = window.FicinoExcelExport;
   var CsvExport = window.FicinoCsvExport;
 
@@ -178,7 +179,11 @@
 
   function exportFresh(leads, kind) {
     var fresh = (leads || []).filter(function (lead) {
-      return lead.status !== 'Ignore' && lead.status !== 'Contacted' && lead.status !== 'Appointed';
+      if (!Templates) {
+        return lead.status !== 'Ignore' && lead.status !== 'Contacted' && lead.status !== 'Appointed';
+      }
+      var tags = Templates.tagsOf(lead);
+      return tags.indexOf('Ignore') === -1 && tags.indexOf('Contacted') === -1 && tags.indexOf('Appointed') === -1;
     });
     if (!fresh.length) {
       showToast((leads && leads.length)

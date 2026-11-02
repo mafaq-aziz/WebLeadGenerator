@@ -42,6 +42,10 @@
         return root.FicinoTemplates ? root.FicinoTemplates.render(templatesFor(templates).wa, lead) : '';
       case 'ig_message':
         return root.FicinoTemplates ? root.FicinoTemplates.render(templatesFor(templates).ig, lead) : '';
+      case 'status':
+        return root.FicinoTemplates
+          ? (root.FicinoTemplates.tagsOf(lead).join(' / ') || 'New')
+          : (lead.status || 'New');
       default:
         return lead[key] === undefined || lead[key] === null ? '' : lead[key];
     }

@@ -85,8 +85,49 @@
     return 'https://www.instagram.com/' + encodeURIComponent(username) + '/';
   }
 
+  var TAG_VALUES = ['New', 'Reviewed', 'Contacted', 'Appointed', 'Ignore'];
+  var TAG_RANK = { Appointed: 4, Contacted: 3, Reviewed: 2, Ignore: 1, New: 0 };
+
+  function normalizeTags(value) {
+    var list;
+    if (Array.isArray(value)) list = value;
+    else if (value === undefined || value === null || value === '') list = [];
+    else list = [value];
+    var out = [];
+    list.forEach(function (raw) {
+      var tag = String(raw === undefined || raw === null ? '' : raw).trim();
+      if (!tag || tag === 'New') return;
+      if (TAG_VALUES.indexOf(tag) === -1) return;
+      if (out.indexOf(tag) === -1) out.push(tag);
+    });
+    return out;
+  }
+
+  function tagsOf(lead) {
+    if (!lead) return [];
+    if (Array.isArray(lead.tags)) return normalizeTags(lead.tags);
+    return normalizeTags(lead.status && lead.status !== 'New' ? [lead.status] : []);
+  }
+
+  function primaryStatus(tags) {
+    var best = 'New';
+    var bestRank = -1;
+    normalizeTags(tags).forEach(function (tag) {
+      var rank = TAG_RANK[tag] || 0;
+      if (rank > bestRank) {
+        bestRank = rank;
+        best = tag;
+      }
+    });
+    return best;
+  }
+
+  function hasTag(lead, tag) {
+    return tagsOf(lead).indexOf(String(tag)) !== -1;
+  }
+
   function isIgnored(lead) {
-    return !!(lead && lead.status === 'Ignore');
+    return hasTag(lead, 'Ignore');
   }
 
   function exportable(leads) {
@@ -102,6 +143,11 @@
     waSendUrl: waSendUrl,
     waAppUrl: waAppUrl,
     igSendUrl: igSendUrl,
+    TAG_VALUES: TAG_VALUES,
+    normalizeTags: normalizeTags,
+    tagsOf: tagsOf,
+    primaryStatus: primaryStatus,
+    hasTag: hasTag,
     isIgnored: isIgnored,
     exportable: exportable
   };

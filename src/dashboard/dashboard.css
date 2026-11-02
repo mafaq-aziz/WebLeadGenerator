@@ -237,6 +237,55 @@ body {
 
 .notes-input:focus, .status-select:focus { outline: none; border-color: var(--accent); }
 
+.col-tags { min-width: 172px; }
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(139, 147, 163, 0.16);
+  color: #b3bacb;
+  white-space: nowrap;
+}
+
+.status-tag.tag-reviewed { background: rgba(79, 140, 255, 0.16); color: #8ab4ff; }
+.status-tag.tag-contacted { background: rgba(53, 194, 106, 0.16); color: #6fe0a0; }
+.status-tag.tag-appointed { background: rgba(170, 120, 255, 0.18); color: #c3a4ff; }
+.status-tag.tag-ignored { background: rgba(224, 85, 85, 0.16); color: #ff9b9b; }
+
+.tag-x {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+}
+
+.tag-x:hover { opacity: 1; }
+
+.tag-list .status-select {
+  padding: 3px 6px;
+  font-size: 11.5px;
+  border-style: dashed;
+  color: var(--muted);
+  cursor: pointer;
+}
+
 .icon-btn {
   appearance: none;
   background: transparent;

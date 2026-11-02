@@ -95,18 +95,19 @@
 
   function matchesFilter(lead) {
     var score = Number(lead.confidence) || 0;
+    var tags = Templates.tagsOf(lead);
     switch (state.filter) {
       case 'high': return score >= 70;
       case 'medium': return score >= 40 && score < 70;
       case 'phone': return !!(lead.phone_normalized || lead.phone_raw);
       case 'phone_issue': return !!lead.phone_issue;
       case 'email': return !!lead.email;
-      case 'new': return (lead.status || 'New') === 'New';
-      case 'reviewed': return lead.status === 'Reviewed';
-      case 'contacted': return lead.status === 'Contacted';
-      case 'appointed': return lead.status === 'Appointed';
-      case 'not_appointed': return lead.status !== 'Appointed';
-      case 'ignored': return lead.status === 'Ignore';
+      case 'new': return tags.length === 0;
+      case 'reviewed': return tags.indexOf('Reviewed') !== -1;
+      case 'contacted': return tags.indexOf('Contacted') !== -1;
+      case 'appointed': return tags.indexOf('Appointed') !== -1;
+      case 'not_appointed': return tags.indexOf('Appointed') === -1;
+      case 'ignored': return tags.indexOf('Ignore') !== -1;
       default: return true;
     }
   }
@@ -170,10 +171,20 @@
     var html = list.map(function (lead) {
       var score = Number(lead.confidence) || 0;
       var selected = state.selected[lead.id] ? 'checked' : '';
-      var statusOptions = STATUS_VALUES.map(function (status) {
-        var sel = (lead.status || 'New') === status ? ' selected' : '';
-        return '<option value="' + escapeHtml(status) + '"' + sel + '>' + escapeHtml(status) + '</option>';
-      }).join('');
+      var tags = Templates.tagsOf(lead);
+      var tagHtml = tags.length
+        ? tags.map(function (tag) {
+            var tagClass = tag === 'Ignore' ? 'ignored' : tag.toLowerCase();
+            return '<span class="status-tag tag-' + tagClass + '">' + escapeHtml(tag) +
+              '<button class="tag-x" data-id="' + escapeHtml(lead.id) + '" data-tag="' + escapeHtml(tag) +
+              '" title="Remove the ' + escapeHtml(tag) + ' tag">×</button></span>';
+          }).join('')
+        : '<span class="status-tag tag-new">New</span>';
+      var addTagOptions = ['<option value="">+ Add</option>'].concat(STATUS_VALUES.filter(function (status) {
+        return status !== 'New' && tags.indexOf(status) === -1;
+      }).map(function (status) {
+        return '<option value="' + escapeHtml(status) + '">' + escapeHtml(status) + '</option>';
+      })).join('');
       var phone = lead.phone_raw || lead.phone_normalized || '—';
       var phoneCell = escapeHtml(phone);
       if (lead.phone_issue) {
@@ -205,7 +216,9 @@
           '<td>' + escapeHtml(lead.location || '—') + '</td>' +
           '<td class="num"><span class="badge ' + confidenceClass(score) + '">' + score + '</span></td>' +
           '<td>' + escapeHtml(lead.date_found || '') + '</td>' +
-          '<td><select class="status-select" data-id="' + escapeHtml(lead.id) + '">' + statusOptions + '</select></td>' +
+          '<td class="col-tags"><div class="tag-list">' + tagHtml +
+            '<select class="status-select" data-id="' + escapeHtml(lead.id) + '" title="Add a tag to this lead">' + addTagOptions + '</select>' +
+            '</div></td>' +
           '<td><input class="notes-input" data-id="' + escapeHtml(lead.id) + '" value="' + escapeHtml(lead.notes || '') + '" placeholder="Notes" /></td>' +
           '<td><button class="icon-btn delete-btn" data-id="' + escapeHtml(lead.id) + '" title="Delete lead">✕</button></td>' +
         '</tr>';
@@ -253,7 +266,9 @@
     return sendMessage({ type: 'MARK_LEADS', payload: { ids: ids, status: 'Contacted' } }).then(function (res) {
       if (res && res.updated) {
         state.leads = state.leads.map(function (lead) {
-          return ids.indexOf(lead.id) !== -1 ? Object.assign({}, lead, { status: 'Contacted' }) : lead;
+          if (ids.indexOf(lead.id) === -1) return lead;
+          var tags = Templates.normalizeTags(Templates.tagsOf(lead).concat(['Contacted']));
+          return Object.assign({}, lead, { tags: tags, status: Templates.primaryStatus(tags) });
         });
         render();
       }
@@ -461,16 +476,24 @@
       }
 
       if (target.classList.contains('status-select')) {
-        sendMessage({ type: 'UPDATE_LEAD', payload: { id: id, status: target.value } }).then(function (response) {
+        var addedTag = target.value;
+        if (!addedTag) return;
+        var tagLead = state.leads.filter(function (lead) { return lead.id === id; })[0];
+        var nextTags = Templates.normalizeTags(Templates.tagsOf(tagLead).concat([addedTag]));
+        sendMessage({ type: 'UPDATE_LEAD', payload: { id: id, tags: nextTags } }).then(function (response) {
           if (!response || !response.updated) {
-            showToast('Status not saved', true);
+            showToast('Tag not saved', true);
             return;
           }
           state.leads = state.leads.map(function (lead) {
-            if (lead.id === id) lead.status = target.value;
+            if (lead.id === id) {
+              lead.tags = nextTags;
+              lead.status = Templates.primaryStatus(nextTags);
+            }
             return lead;
           });
-          showToast('Status updated');
+          render();
+          showToast('Added "' + addedTag + '" tag');
         });
         return;
       }
@@ -491,6 +514,29 @@
     });
 
     els.leadRows.addEventListener('click', function (event) {
+      var tagButton = event.target.closest('.tag-x');
+      if (tagButton) {
+        var tagId = tagButton.getAttribute('data-id');
+        var tagValue = tagButton.getAttribute('data-tag');
+        var rowLead = state.leads.filter(function (lead) { return lead.id === tagId; })[0];
+        var remainingTags = Templates.tagsOf(rowLead).filter(function (tag) { return tag !== tagValue; });
+        sendMessage({ type: 'UPDATE_LEAD', payload: { id: tagId, tags: remainingTags } }).then(function (response) {
+          if (!response || !response.updated) {
+            showToast('Tag not removed', true);
+            return;
+          }
+          state.leads = state.leads.map(function (lead) {
+            if (lead.id === tagId) {
+              lead.tags = remainingTags;
+              lead.status = Templates.primaryStatus(remainingTags);
+            }
+            return lead;
+          });
+          render();
+          showToast('Removed "' + tagValue + '" tag');
+        });
+        return;
+      }
       var fixButton = event.target.closest('.fix-phone-btn');
       if (fixButton) {
         var fixId = fixButton.getAttribute('data-id');
@@ -544,7 +590,8 @@
         if (skipped > 0) skipNote = ' (' + skipped + ' ignored excluded)';
       }
       var fresh = exportable.filter(function (lead) {
-        return (lead.status || 'New') !== 'Contacted' && (lead.status || 'New') !== 'Appointed';
+        var tags = Templates.tagsOf(lead);
+        return tags.indexOf('Contacted') === -1 && tags.indexOf('Appointed') === -1;
       });
       var already = exportable.length - fresh.length;
       if (already > 0) skipNote += ' · ' + already + ' already contacted excluded';
